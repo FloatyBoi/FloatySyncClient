@@ -59,13 +59,20 @@ namespace FloatySyncClient
 
 			_ = Task.Run(async () =>
 			{
-				while (true)
+				try
 				{
-					foreach (var wg in watchers)
+					while (true)
 					{
-						await wg.RunFullSync();
+						foreach (var wg in watchers)
+						{
+							await wg.RunFullSync();
+						}
+						await Task.Delay(TimeSpan.FromMinutes(1));
 					}
-					await Task.Delay(TimeSpan.FromMinutes(2));
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine(ex.ToString());
 				}
 			});
 

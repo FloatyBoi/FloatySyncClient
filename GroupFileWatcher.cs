@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -135,6 +136,7 @@ namespace FloatySyncClient
 		//TODO: What happens on conflict?
 		public async Task RunFullSync()
 		{
+			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
 			await PushLocalChanges(lastSyncCopy);
 
@@ -158,6 +160,7 @@ namespace FloatySyncClient
 			{
 				Console.WriteLine("[Sync] Sync complete. No new changes found.");
 			}
+			Console.WriteLine($"[Sync Group {_serverGroupId} End]");
 		}
 
 		private async Task PushLocalChanges(DateTime lastSyncUtc)
@@ -266,10 +269,11 @@ namespace FloatySyncClient
 
 		private DateTime CalculateNewMaxSyncTime()
 		{
-			var maxLocal = _syncDbContext.Files
+			DateTime maxLocal = _syncDbContext.Files
 				.Where(f => f.GroupId == _serverGroupId.ToString())
 				.Select(f => f.LastModifiedUtc)
-				.DefaultIfEmpty(LastSyncUtc)
+				.ToList()
+				.DefaultIfEmpty(DateTime.UtcNow)
 				.Max();
 
 			return maxLocal > LastSyncUtc ? maxLocal : LastSyncUtc;

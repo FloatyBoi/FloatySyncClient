@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.EntityFrameworkCore.Storage.Json;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -47,7 +48,8 @@ namespace FloatySyncClient
 			response.EnsureSuccessStatusCode();
 			string result = await response.Content.ReadAsStringAsync();
 
-			return JsonSerializer.Deserialize<GroupIdResponse>(result).GroupId;
+			var value = JsonSerializer.Deserialize<GroupIdResponse>(result, JsonSerializerOptions.Web).GroupId;
+			return value;
 		}
 
 		internal static async void DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl)
@@ -140,9 +142,9 @@ namespace FloatySyncClient
 			using var formData = new MultipartFormDataContent();
 
 			formData.Add(new StringContent(relativePath), "relativePath");
+			formData.Add(new StringContent(lastModifiedUtc.ToString("o")), "lastModifiedUtc");
 			formData.Add(new StringContent(serverGroupId.ToString()), "groupId");
 			formData.Add(new StringContent(groupKey), "groupKeyPlaintext");
-			formData.Add(new StringContent(lastModifiedUtc.ToString()), "lastModifiedUtc");
 
 			var fileStream = File.OpenRead(filePath);
 			var fileContent = new StreamContent(fileStream);
@@ -154,6 +156,7 @@ namespace FloatySyncClient
 			var requestUrl = $"{serverUrl}/api/files/upload";
 
 			using var response = await httpClient.PostAsync(requestUrl, formData);
+
 			response.EnsureSuccessStatusCode();
 		}
 	}
