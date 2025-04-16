@@ -11,7 +11,7 @@ namespace FloatySyncClient
 	internal class Program
 	{
 		static ClientConfig config = null;
-		static async void Main(string[] args)
+		static async Task Main(string[] args)
 		{
 			var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
 
