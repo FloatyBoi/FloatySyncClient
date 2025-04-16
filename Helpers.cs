@@ -47,7 +47,7 @@ namespace FloatySyncClient
 			response.EnsureSuccessStatusCode();
 			string result = await response.Content.ReadAsStringAsync();
 
-			return Convert.ToInt32(result);
+			return JsonSerializer.Deserialize<GroupIdResponse>(result).GroupId;
 		}
 
 		internal static async void DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl)

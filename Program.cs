@@ -37,6 +37,7 @@ namespace FloatySyncClient
 			}
 
 			using var db = new SyncDbContext();
+			db.Database.EnsureCreated();
 			var allGroups = db.Groups.ToList();
 
 			List<GroupFileWatcher> watchers = new List<GroupFileWatcher>();
@@ -56,7 +57,7 @@ namespace FloatySyncClient
 				watchers.Add(watcher);
 			}
 
-			await Task.Run(async () =>
+			_ = Task.Run(async () =>
 			{
 				while (true)
 				{
@@ -183,7 +184,7 @@ namespace FloatySyncClient
 
 			foreach (var serverFile in changedFiles)
 			{
-				// If it's deleted on the server skip it
+				// If its deleted on the server skip it
 				if (serverFile.IsDeleted)
 				{
 					continue;
