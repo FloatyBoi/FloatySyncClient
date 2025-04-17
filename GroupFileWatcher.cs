@@ -258,7 +258,8 @@ namespace FloatySyncClient
 			{
 				try
 				{
-					await Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
+					_syncDbContext.Remove(fileMetadata);
+					await Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl, _localFolder);
 				}
 				catch (HttpRequestException)
 				{
@@ -269,6 +270,7 @@ namespace FloatySyncClient
 			{
 				try
 				{
+					_syncDbContext.Remove(fileMetadata);
 					await HandleDirectoryDelete(e.FullPath);
 				}
 				catch (HttpRequestException)
@@ -277,7 +279,6 @@ namespace FloatySyncClient
 				}
 			}
 
-			_syncDbContext.Remove(fileMetadata);
 			_syncDbContext.SaveChanges();
 		}
 
@@ -560,7 +561,7 @@ namespace FloatySyncClient
 				bool done = p.ChangeType switch
 				{
 					"Upload" => await Helpers.TryUpload(p, _localFolder, _serverGroupId, _groupKey, _serverUrl),
-					"Delete" => await Helpers.TryDelete(p, _serverGroupId, _groupKey, _serverUrl),
+					"Delete" => await Helpers.TryDelete(p, _serverGroupId, _groupKey, _serverUrl, _localFolder),
 					"Move" => await Helpers.TryMove(p, _serverGroupId, _groupKey, _serverUrl),
 					"CreateDir" => await Helpers.TryCreateDir(p, _localFolder, _serverGroupId, _groupKey, _serverUrl),
 					"DeleteDir" => await TryHandleDirDelete(p),

@@ -53,7 +53,7 @@ namespace FloatySyncClient
 			return value;
 		}
 
-		internal static async Task DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl)
+		internal static async Task DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl, string localRoot)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -67,6 +67,37 @@ namespace FloatySyncClient
 			var request = new HttpRequestMessage(HttpMethod.Delete, requestUrl);
 
 			using var response = await httpClient.SendAsync(request);
+
+			if (response.IsSuccessStatusCode)
+				return;
+
+			if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+			{
+				Console.WriteLine($"[Conflict] Checksum mismatch deleting {relativePath} – " +
+						  $"downloading authoritative copy.");
+
+				var disk = Path.Combine(localRoot, PathNorm.ToDisk(relativePath));
+				if (File.Exists(disk))
+				{
+					var backup = disk + ".local-conflict-" +
+								 DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+					File.Move(disk, backup, overwrite: true);
+				}
+
+				await DownloadFileServer(serverGroupId, groupKey, relativePath, disk, serverUrl);
+
+				using var db = new SyncDbContext();
+				db.Files.Add(new FileMetadata
+				{
+					Checksum = ComputeFileChecksum(disk),
+					IsDeleted = false,
+					RelativePath = relativePath,
+					StoredPathOnClient = disk,
+					LastModifiedUtc = DateTime.UtcNow,
+					GroupId = serverGroupId.ToString()
+				});
+				db.SaveChanges();
+			}
 
 			response.EnsureSuccessStatusCode();
 		}
@@ -155,9 +186,41 @@ namespace FloatySyncClient
 
 			var requestUrl = $"{serverUrl}/api/files/upload";
 
-			using var response = await httpClient.PostAsync(requestUrl, formData);
+			try
+			{
+				var resp = await httpClient.PostAsync(requestUrl, formData);
 
-			response.EnsureSuccessStatusCode();
+				if (resp.IsSuccessStatusCode)
+					return;
+
+				if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+				{
+					Console.WriteLine($"[Conflict] Server newer → keeping local copy as backup " +
+						  $"and pulling server version: {relativePath}");
+
+					var backup = filePath + ".local-conflict-" +
+					 DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+					File.Move(filePath, backup, overwrite: true);
+
+					await DownloadFileServer(serverGroupId, groupKey, relativePath, filePath, serverUrl);
+					Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+
+					using var db = new SyncDbContext();
+					var row = db.Files.First(f => f.GroupId == serverGroupId.ToString()
+											   && f.RelativePath == relativePath);
+					row.LastModifiedUtc = File.GetLastWriteTimeUtc(filePath);
+					row.Checksum = Helpers.ComputeFileChecksum(filePath);
+					row.StoredPathOnClient = filePath;
+					db.SaveChanges();
+				}
+
+				resp.EnsureSuccessStatusCode();
+
+			}
+			catch (HttpRequestException)
+			{
+				throw;
+			}
 		}
 
 		public static bool WasDirectory(string fullPath, int serverGroupId)
@@ -214,11 +277,11 @@ namespace FloatySyncClient
 
 		}
 
-		public static async Task<bool> TryDelete(PendingChange p, int serverGroupId, string groupKey, string serverUrl)
+		public static async Task<bool> TryDelete(PendingChange p, int serverGroupId, string groupKey, string serverUrl, string localRoot)
 		{
 			try
 			{
-				await DeleteOnServer(p.RelativePath, p.Checksum, serverGroupId, groupKey, serverUrl);
+				await DeleteOnServer(p.RelativePath, p.Checksum, serverGroupId, groupKey, serverUrl, localRoot);
 				return true;
 			}
 			catch
