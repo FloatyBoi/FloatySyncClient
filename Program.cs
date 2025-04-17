@@ -239,7 +239,7 @@ namespace FloatySyncClient
 
 			var allFiles = Directory.GetFiles(localPath, "*", SearchOption.AllDirectories);
 
-			var allDirectories = Directory.GetDirectories(localPath);
+			var allDirectories = Directory.GetDirectories(localPath, "*", SearchOption.AllDirectories);
 
 			using var db = new SyncDbContext();
 

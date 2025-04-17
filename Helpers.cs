@@ -73,29 +73,36 @@ namespace FloatySyncClient
 
 		internal static async Task DownloadFileServer(int groupId, string? groupKey, string relativePath, string localPath, string serverUrl)
 		{
-			HttpClient httpClient = new HttpClient();
-
-			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
-						  $"&groupId={groupId}" +
-						  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
-
-			var requestUrl = $"{serverUrl}/api/files/download{queryString}";
-
-			using var response = await httpClient.GetAsync(requestUrl, HttpCompletionOption.ResponseHeadersRead);
-			response.EnsureSuccessStatusCode();
-
-			var directory = Path.GetDirectoryName(localPath);
-			if (!string.IsNullOrEmpty(relativePath) && !Directory.Exists(directory))
+			try
 			{
-				Directory.CreateDirectory(directory);
+				HttpClient httpClient = new HttpClient();
+
+				var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
+							  $"&groupId={groupId}" +
+							  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
+
+				var requestUrl = $"{serverUrl}/api/files/download{queryString}";
+
+				using var response = await httpClient.GetAsync(requestUrl, HttpCompletionOption.ResponseHeadersRead);
+				response.EnsureSuccessStatusCode();
+
+				var directory = Path.GetDirectoryName(localPath);
+				if (!string.IsNullOrEmpty(relativePath) && !Directory.Exists(directory))
+				{
+					Directory.CreateDirectory(directory);
+				}
+
+				using var responseStream = await response.Content.ReadAsStreamAsync();
+				using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+				await responseStream.CopyToAsync(fileStream);
+			}
+			catch
+			{
+				await Task.Delay(200);
+				await DownloadFileServer(groupId, groupKey, relativePath, localPath, serverUrl);
 			}
 
-			using var responseStream = await response.Content.ReadAsStreamAsync();
-			using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
-
-			await responseStream.CopyToAsync(fileStream);
-
-			//TODO: Add changes to database
 		}
 
 		internal static async Task<string> GetGroupNameByIdFromServer(int serverGroupId, string serverUrl)
@@ -185,7 +192,7 @@ namespace FloatySyncClient
 			var requestBodyObject = new
 			{
 				relativePath = relativePath,
-				groupKeyPlaintext = groupKey,
+				groupKey = groupKey,
 				groupId = serverGroupId
 			};
 

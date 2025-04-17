@@ -11,10 +11,10 @@ namespace FloatySyncClient
 		public int Id { get; set; }
 		public string RelativePath { get; set; } = default!;
 		public DateTime LastModifiedUtc { get; set; }
-		public string Checksum { get; set; }
+		public string? Checksum { get; set; }
+		public bool IsDirectory { get; set; }
+		public bool IsDeleted { get; set; }
 		public string GroupId { get; set; }
 		public string StoredPathOnClient { get; set; }
-
-		public bool IsDirectory { get; set; }
 	}
 }

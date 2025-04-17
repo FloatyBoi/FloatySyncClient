@@ -50,11 +50,8 @@ namespace FloatySyncClient
 		//TODO: What happens on conflict?
 		private void OnCreated(object sender, FileSystemEventArgs e)
 		{
-			if (Program.isRunningSync)
-				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Console.WriteLine("OnCreated");
 			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
@@ -95,7 +92,6 @@ namespace FloatySyncClient
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Console.WriteLine("OnChanged");
 			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
@@ -122,7 +118,6 @@ namespace FloatySyncClient
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Console.WriteLine("OnRenamed");
 			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
@@ -157,8 +152,8 @@ namespace FloatySyncClient
 			{
 				GroupId = _serverGroupId,
 				GroupKey = _groupKey,
-				OldRelativePath = oldRel,
-				NewRelativePath = newRel,
+				OldPath = oldRel,
+				NewPath = newRel,
 			};
 
 			await client.PostAsJsonAsync($"{_serverUrl}/api/directories/rename", body);
@@ -196,7 +191,6 @@ namespace FloatySyncClient
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Console.WriteLine("OnDeleted");
 			Task.Delay(500);
 
 			var fileMetadata = _syncDbContext.Files
