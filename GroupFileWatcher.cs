@@ -317,9 +317,11 @@ namespace FloatySyncClient
 				Directory.Delete(fullPath, true);
 		}
 
-		//TODO: What happens on conflict?
 		public async Task RunFullSync()
 		{
+			if (!await ServerReachable())
+				return;
+
 			var _syncDbContext = new SyncDbContext();
 			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
@@ -368,7 +370,7 @@ namespace FloatySyncClient
 				if (localFile.IsDirectory && Directory.Exists(fullPath))
 				{
 					Console.WriteLine($"[Sync] Creating directory on server: {localFile.RelativePath}");
-					Helpers.CreateDirectoryOnServer(fullPath, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
+					await Helpers.CreateDirectoryOnServer(fullPath, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
 					continue;
 				}
 
@@ -380,7 +382,7 @@ namespace FloatySyncClient
 
 				Console.WriteLine($"[Sync] Pushing local change: {localFile.RelativePath}");
 
-				Helpers.UploadFileToServer(fullPath, localFile.LastModifiedUtc, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
+				await Helpers.UploadFileToServer(fullPath, localFile.LastModifiedUtc, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
 
 			}
 		}
