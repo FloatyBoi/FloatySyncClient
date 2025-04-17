@@ -201,7 +201,8 @@ namespace FloatySyncClient
 				var localPath = Path.Combine(localFolder, serverFile.RelativePath);
 				Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
-				await Helpers.DownloadFileServer(groupId, groupKey, serverFile.RelativePath, localPath, config.ServerUrl);
+				if (!serverFile.IsDirectory)
+					await Helpers.DownloadFileServer(groupId, groupKey, serverFile.RelativePath, localPath, config.ServerUrl);
 
 				var existing = db.Files
 					.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
@@ -215,7 +216,8 @@ namespace FloatySyncClient
 						LastModifiedUtc = serverFile.LastModifiedUtc,
 						GroupId = groupId.ToString(),
 						StoredPathOnClient = localPath,
-						Checksum = Helpers.ComputeFileChecksum(localPath)
+						Checksum = Helpers.ComputeFileChecksum(localPath),
+						IsDirectory = serverFile.IsDirectory
 					});
 				}
 				else
@@ -223,6 +225,7 @@ namespace FloatySyncClient
 					existing.LastModifiedUtc = serverFile.LastModifiedUtc;
 					existing.StoredPathOnClient = localPath;
 					existing.Checksum = Helpers.ComputeFileChecksum(localPath);
+					existing.IsDirectory = serverFile.IsDirectory;
 				}
 			}
 
@@ -235,6 +238,8 @@ namespace FloatySyncClient
 			HttpClient client = new HttpClient();
 
 			var allFiles = Directory.GetFiles(localPath, "*", SearchOption.AllDirectories);
+
+			var allDirectories = Directory.GetDirectories(localPath);
 
 			using var db = new SyncDbContext();
 
@@ -250,23 +255,54 @@ namespace FloatySyncClient
 
 				if (existing == null)
 				{
-					var lastModified = File.GetLastWriteTimeUtc(filePath);
 					var newRecord = new FileMetadata
 					{
 						RelativePath = relativePath,
-						LastModifiedUtc = lastModified,
+						LastModifiedUtc = DateTime.UtcNow,
 						Checksum = Helpers.ComputeFileChecksum(filePath),
 						GroupId = serverGroupId.ToString(),
-						StoredPathOnClient = filePath
+						StoredPathOnClient = filePath,
+						IsDirectory = Helpers.WasDirectory(filePath, serverGroupId)
 					};
 					db.Files.Add(newRecord);
 				}
 				else
 				{
-					// Possibly update the existing record’s lastModified, checksum, etc.
-					existing.LastModifiedUtc = File.GetLastWriteTimeUtc(filePath);
+					existing.LastModifiedUtc = DateTime.UtcNow;
 					existing.Checksum = Helpers.ComputeFileChecksum(filePath);
 					existing.StoredPathOnClient = filePath;
+					existing.IsDirectory = Helpers.WasDirectory(filePath, serverGroupId);
+				}
+			}
+
+			foreach (var directory in allDirectories)
+			{
+				string relativePath = Path.GetRelativePath(localPath, directory)
+											.Replace("\\", "/");
+				Helpers.CreateDirectoryOnServer(directory, serverGroupId, groupKey, relativePath, config.ServerUrl);
+
+				var existing = db.Files
+					.FirstOrDefault(f => f.RelativePath == relativePath &&
+										 f.GroupId == serverGroupId.ToString());
+				if (existing == null)
+				{
+					var newRecord = new FileMetadata
+					{
+						RelativePath = relativePath,
+						LastModifiedUtc = DateTime.UtcNow,
+						Checksum = null,
+						GroupId = serverGroupId.ToString(),
+						StoredPathOnClient = directory,
+						IsDirectory = Helpers.WasDirectory(directory, serverGroupId)
+					};
+
+					db.Files.Add(newRecord);
+				}
+				else
+				{
+					existing.LastModifiedUtc = DateTime.UtcNow;
+					existing.StoredPathOnClient = directory;
+					existing.IsDirectory = true;
 				}
 			}
 
