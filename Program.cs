@@ -198,6 +198,7 @@ namespace FloatySyncClient
 				catch (Exception ex)
 				{
 					Console.WriteLine($"Request failed: {ex.Message}");
+					Log.Error(ex, "Error with groups:");
 				}
 			}
 		}
