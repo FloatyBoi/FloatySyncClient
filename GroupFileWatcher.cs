@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http.Json;
 using System.Text;
@@ -51,11 +52,11 @@ namespace FloatySyncClient
 
 		// FileSystemWatcher handlers
 		//TODO: What happens on conflict?
-		private void OnCreated(object sender, FileSystemEventArgs e)
+		private async void OnCreated(object sender, FileSystemEventArgs e)
 		{
 
 			var _syncDbContext = new SyncDbContext();
-			Task.Delay(500);
+			await Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -70,7 +71,14 @@ namespace FloatySyncClient
 				_syncDbContext.Files.Add(fileMetadata);
 				_syncDbContext.SaveChanges();
 
-				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				try
+				{
+					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("Upload", RelFromFull(e.FullPath), fileMetadata.Checksum);
+				}
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
@@ -85,17 +93,24 @@ namespace FloatySyncClient
 				_syncDbContext.Files.Add(directoryMetadata);
 				_syncDbContext.SaveChanges();
 
-				Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				try
+				{
+					await Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("CreateDir", RelFromFull(e.FullPath), null);
+				}
 			}
 
 		}
-		private void OnChanged(object sender, FileSystemEventArgs e)
+		private async void OnChanged(object sender, FileSystemEventArgs e)
 		{
 			if (Program.isRunningSync)
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Task.Delay(500);
+			await Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -107,21 +122,27 @@ namespace FloatySyncClient
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
 
 				_syncDbContext.SaveChanges();
-
-				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				try
+				{
+					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("Upload", RelFromFull(e.FullPath), fileMetadata.Checksum);
+				}
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
 				//Ignore (What can change in directories?)
 			}
 		}
-		private void OnRenamed(object sender, RenamedEventArgs e)
+		private async void OnRenamed(object sender, RenamedEventArgs e)
 		{
 			if (Program.isRunningSync)
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Task.Delay(500);
+			await Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -136,15 +157,45 @@ namespace FloatySyncClient
 
 				_syncDbContext.SaveChanges();
 
-				Helpers.MoveFileOnServer(PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)), _serverGroupId, _groupKey, _serverUrl);
+				try
+				{
+					await Helpers.MoveFileOnServer(PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)), _serverGroupId, _groupKey, _serverUrl);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("Move", PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), fileMetadata.Checksum, PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)));
+				}
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
-				HandleDirectoryRename(e.OldFullPath, e.FullPath);
+				try
+				{
+					await HandleDirectoryRename(e.OldFullPath, e.FullPath);
+				}
+				catch (HttpRequestException)
+				{
+					var oldRel = RelFromFull(e.OldFullPath);
+					var newRel = RelFromFull(e.FullPath);
+
+					QueueChange("RenameDir", oldRel, null, newRel);
+				}
 			}
 		}
 
-		private async void HandleDirectoryRename(string oldFullPath, string fullPath)
+		private async Task<bool> TryHandleDirRename(PendingChange p)
+		{
+			try
+			{
+				await HandleDirectoryRename(Path.Combine(_localFolder, p.RelativePath), Path.Combine(_localFolder, p.AuxPath!));
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private async Task HandleDirectoryRename(string oldFullPath, string fullPath)
 		{
 			HttpClient client = new HttpClient();
 
@@ -188,13 +239,13 @@ namespace FloatySyncClient
 			db.SaveChanges();
 		}
 
-		private void OnDeleted(object sender, FileSystemEventArgs e)
+		private async void OnDeleted(object sender, FileSystemEventArgs e)
 		{
 			if (Program.isRunningSync)
 				return;
 
 			var _syncDbContext = new SyncDbContext();
-			Task.Delay(500);
+			await Task.Delay(500);
 
 			var fileMetadata = _syncDbContext.Files
 				.FirstOrDefault(f => f.RelativePath == RelFromFull(e.FullPath)
@@ -204,17 +255,48 @@ namespace FloatySyncClient
 				return;
 
 			if (!Helpers.WasDirectory(e.FullPath, _serverGroupId))
-				Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
+			{
+				try
+				{
+					await Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("Delete", fileMetadata.RelativePath, fileMetadata.Checksum);
+				}
+			}
 			else
 			{
-				HandleDirectoryDelete(e.FullPath);
+				try
+				{
+					await HandleDirectoryDelete(e.FullPath);
+				}
+				catch (HttpRequestException)
+				{
+					QueueChange("DeleteDir", fileMetadata.RelativePath, null);
+				}
 			}
 
 			_syncDbContext.Remove(fileMetadata);
 			_syncDbContext.SaveChanges();
 		}
 
-		private async void HandleDirectoryDelete(string fullPath)
+		private async Task<bool> TryHandleDirDelete(PendingChange p)
+		{
+			var path = Path.Combine(_localFolder, PathNorm.ToDisk(p.RelativePath));
+
+			try
+			{
+				await HandleDirectoryDelete(path);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private async Task HandleDirectoryDelete(string fullPath)
 		{
 			var rel = RelFromFull(fullPath);
 
@@ -386,6 +468,168 @@ namespace FloatySyncClient
 			_syncDbContext.SaveChanges();
 		}
 
+		public async Task CatchUpSync()
+		{
+			if (!await ServerReachable())
+			{
+				Console.WriteLine("[Sync] Server offline");
+				return;
+			}
+
+			await FlushQueue();
+			await RunFullSync();
+		}
+
+		public void ScanLocalFolder()
+		{
+			using var db = new SyncDbContext();
+
+			// What database thinks exists
+			var dbRows = db.Files
+						   .Where(f => f.GroupId == _serverGroupId.ToString())
+						   .ToDictionary(f => f.RelativePath, f => f);
+
+			foreach (var path in Directory.EnumerateFileSystemEntries(
+						   _localFolder, "*", SearchOption.AllDirectories))
+			{
+				var rel = RelFromFull(path);
+				bool isDir = Directory.Exists(path);
+
+				// New file / directory
+				if (!dbRows.TryGetValue(rel, out var row))
+				{
+					db.Files.Add(new FileMetadata
+					{
+						RelativePath = rel,
+						IsDirectory = isDir,
+						IsDeleted = false,
+						GroupId = _serverGroupId.ToString(),
+						LastModifiedUtc = File.GetLastWriteTimeUtc(path),
+						StoredPathOnClient = path,
+						Checksum = isDir ? null : Helpers.ComputeFileChecksum(path)
+					});
+
+					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum: Helpers.ComputeFileChecksum(path));
+					continue;
+				}
+
+				// Exists but was deleted
+				if (row.IsDeleted)
+				{
+					row.IsDeleted = false;
+					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum: row.Checksum);
+				}
+
+				// File updated
+				if (!isDir)
+				{
+					var lastWrite = File.GetLastWriteTimeUtc(path);
+					if (lastWrite > row.LastModifiedUtc)
+					{
+						row.LastModifiedUtc = lastWrite;
+						row.Checksum = Helpers.ComputeFileChecksum(path);
+						QueueChange("Upload", rel, checksum: row.Checksum);
+					}
+				}
+
+				dbRows.Remove(rel);
+			}
+
+			// Rest is missing on disk
+			foreach (var kvp in dbRows.Values)
+			{
+				if (kvp.IsDeleted) continue;
+
+				kvp.IsDeleted = true;
+				QueueChange(kvp.IsDirectory ? "DeleteDir" : "Delete", kvp.RelativePath, checksum: kvp.Checksum);
+			}
+
+			db.SaveChanges();
+			Console.WriteLine($"[Scan] Completed initial scan for group {_serverGroupId}");
+		}
+
+		public async Task FlushQueue()
+		{
+			using var db = new SyncDbContext();
+			var batch = db.PendingChanges
+						  .Where(p => p.GroupId == _serverGroupId)
+						  .Take(20).ToList();
+
+			foreach (var p in batch)
+			{
+				bool done = p.ChangeType switch
+				{
+					"Upload" => await Helpers.TryUpload(p, _localFolder, _serverGroupId, _groupKey, _serverUrl),
+					"Delete" => await Helpers.TryDelete(p, _serverGroupId, _groupKey, _serverUrl),
+					"Move" => await Helpers.TryMove(p, _serverGroupId, _groupKey, _serverUrl),
+					"CreateDir" => await Helpers.TryCreateDir(p, _localFolder, _serverGroupId, _groupKey, _serverUrl),
+					"DeleteDir" => await TryHandleDirDelete(p),
+					"RenameDir" => await TryHandleDirRename(p),
+					_ => true
+				};
+				if (done) db.PendingChanges.Remove(p);
+			}
+			db.SaveChanges();
+		}
+
+		private void QueueChange(string type, string rel, string checksum, string? aux = null)
+		{
+			using var db = new SyncDbContext();
+
+			var existing = db.PendingChanges
+							 .FirstOrDefault(p => p.GroupId == _serverGroupId &&
+												  p.RelativePath == rel);
+
+			if (existing == null)
+			{
+				db.PendingChanges.Add(new PendingChange
+				{
+					GroupId = _serverGroupId,
+					RelativePath = rel,
+					ChangeType = type,
+					AuxPath = aux,
+					QueuedUtc = DateTime.UtcNow,
+					Checksum = checksum
+				});
+			}
+			else
+			{
+				switch (type)
+				{
+					case "Delete":
+					case "DeleteDir":
+						// Deletion wins over everything
+						existing.ChangeType = type;
+						existing.AuxPath = null;
+						break;
+
+					case "Move":
+					case "RenameDir":
+						// Overwrite any prior action with latest target path
+						existing.ChangeType = type;
+						existing.AuxPath = aux;
+						break;
+
+					case "Upload":
+						// If we already queued a Move/RenameDir keep that
+						// Or make all uploads into one
+						if (existing.ChangeType is not ("Move" or "RenameDir"))
+							existing.ChangeType = "Upload";
+
+						existing.QueuedUtc = DateTime.UtcNow;
+						break;
+
+					case "CreateDir":
+						// Keep CreateDir unless a Delete/DeleteDir already queued
+						if (existing.ChangeType.StartsWith("Delete", StringComparison.Ordinal) == false)
+							existing.ChangeType = "CreateDir";
+						break;
+				}
+			}
+
+			db.SaveChanges();
+		}
+
 		private DateTime CalculateNewMaxSyncTime()
 		{
 			var _syncDbContext = new SyncDbContext();
@@ -397,6 +641,19 @@ namespace FloatySyncClient
 				.Max();
 
 			return maxLocal > LastSyncUtc ? maxLocal : LastSyncUtc;
+		}
+
+		private async Task<bool> ServerReachable()
+		{
+			try
+			{
+				var resp = await Helpers.GetGroupNameByIdFromServer(_serverGroupId, _serverUrl);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
 		}
 	}
 

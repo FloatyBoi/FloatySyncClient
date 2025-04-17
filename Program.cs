@@ -53,7 +53,8 @@ namespace FloatySyncClient
 					config.ServerUrl);
 
 				watcher.LastSyncUtc = localGroup.LastSyncUtc;
-
+				watcher.ScanLocalFolder();
+				await watcher.CatchUpSync();
 				watcher.StartWatching();
 				watchers.Add(watcher);
 			}
@@ -67,6 +68,7 @@ namespace FloatySyncClient
 						foreach (var wg in watchers)
 						{
 							isRunningSync = true;
+							await wg.FlushQueue();
 							await wg.RunFullSync();
 							isRunningSync = false;
 						}

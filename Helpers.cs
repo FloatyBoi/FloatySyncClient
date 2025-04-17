@@ -53,7 +53,7 @@ namespace FloatySyncClient
 			return value;
 		}
 
-		internal static async void DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl)
+		internal static async Task DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -73,35 +73,27 @@ namespace FloatySyncClient
 
 		internal static async Task DownloadFileServer(int groupId, string? groupKey, string relativePath, string localPath, string serverUrl)
 		{
-			try
+			HttpClient httpClient = new HttpClient();
+
+			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
+						  $"&groupId={groupId}" +
+						  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
+
+			var requestUrl = $"{serverUrl}/api/files/download{queryString}";
+
+			using var response = await httpClient.GetAsync(requestUrl, HttpCompletionOption.ResponseHeadersRead);
+			response.EnsureSuccessStatusCode();
+
+			var directory = Path.GetDirectoryName(localPath);
+			if (!string.IsNullOrEmpty(relativePath) && !Directory.Exists(directory))
 			{
-				HttpClient httpClient = new HttpClient();
-
-				var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
-							  $"&groupId={groupId}" +
-							  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
-
-				var requestUrl = $"{serverUrl}/api/files/download{queryString}";
-
-				using var response = await httpClient.GetAsync(requestUrl, HttpCompletionOption.ResponseHeadersRead);
-				response.EnsureSuccessStatusCode();
-
-				var directory = Path.GetDirectoryName(localPath);
-				if (!string.IsNullOrEmpty(relativePath) && !Directory.Exists(directory))
-				{
-					Directory.CreateDirectory(directory);
-				}
-
-				using var responseStream = await response.Content.ReadAsStreamAsync();
-				using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
-
-				await responseStream.CopyToAsync(fileStream);
+				Directory.CreateDirectory(directory);
 			}
-			catch
-			{
-				await Task.Delay(200);
-				await DownloadFileServer(groupId, groupKey, relativePath, localPath, serverUrl);
-			}
+
+			using var responseStream = await response.Content.ReadAsStreamAsync();
+			using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+			await responseStream.CopyToAsync(fileStream);
 
 		}
 
@@ -121,7 +113,7 @@ namespace FloatySyncClient
 			return groupResponse?.Name;
 		}
 
-		internal static async void MoveFileOnServer(string oldRelativePath, string newRelativePath, int serverGroupId, string groupKey, string serverUrl)
+		internal static async Task MoveFileOnServer(string oldRelativePath, string newRelativePath, int serverGroupId, string groupKey, string serverUrl)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -143,7 +135,7 @@ namespace FloatySyncClient
 			response.EnsureSuccessStatusCode();
 		}
 
-		internal static async void UploadFileToServer(string filePath, DateTime lastModifiedUtc, int serverGroupId, string? groupKey, string relativePath, string serverUrl)
+		internal static async Task UploadFileToServer(string filePath, DateTime lastModifiedUtc, int serverGroupId, string? groupKey, string relativePath, string serverUrl)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -183,7 +175,7 @@ namespace FloatySyncClient
 			return false;
 		}
 
-		internal static async void CreateDirectoryOnServer(string fullPath, int serverGroupId, string groupKey, string relativePath, string serverUrl)
+		internal static async Task CreateDirectoryOnServer(string fullPath, int serverGroupId, string groupKey, string relativePath, string serverUrl)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -204,6 +196,66 @@ namespace FloatySyncClient
 			response.EnsureSuccessStatusCode();
 		}
 
+		public static async Task<bool> TryUpload(PendingChange p, string localFolder, int serverGroupId, string groupKey, string serverUrl)
+		{
+			var path = Path.Combine(localFolder, PathNorm.ToDisk(p.RelativePath));
+			if (!File.Exists(path))
+				return true;
 
+			try
+			{
+				await UploadFileToServer(path, DateTime.UtcNow, serverGroupId, groupKey, p.RelativePath, serverUrl);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+
+		}
+
+		public static async Task<bool> TryDelete(PendingChange p, int serverGroupId, string groupKey, string serverUrl)
+		{
+			try
+			{
+				await DeleteOnServer(p.RelativePath, p.Checksum, serverGroupId, groupKey, serverUrl);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+
+		}
+
+		public static async Task<bool> TryMove(PendingChange p, int serverGroupId, string groupKey, string serverUrl)
+		{
+			try
+			{
+				await MoveFileOnServer(p.RelativePath, p.AuxPath!, serverGroupId, groupKey, serverUrl);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+
+		}
+
+		public static async Task<bool> TryCreateDir(PendingChange p, string localFolder, int serverGroupId, string groupKey, string serverUrl)
+		{
+			var path = Path.Combine(localFolder, PathNorm.ToDisk(p.RelativePath));
+
+			try
+			{
+				await CreateDirectoryOnServer(path, serverGroupId, groupKey, p.RelativePath, serverUrl);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+
+		}
 	}
 }

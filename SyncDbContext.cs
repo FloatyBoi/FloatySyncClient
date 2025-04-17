@@ -22,6 +22,7 @@ namespace FloatySyncClient
 
 		public DbSet<Group> Groups { get; set; }
 		public DbSet<FileMetadata> Files { get; set; }
+		public DbSet<PendingChange> PendingChanges { get; set; }
 
 		public string DbPath { get; }
 	}
