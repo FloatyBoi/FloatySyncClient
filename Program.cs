@@ -198,7 +198,7 @@ namespace FloatySyncClient
 					continue;
 				}
 
-				var localPath = Path.Combine(localFolder, serverFile.RelativePath);
+				var localPath = Path.Combine(localFolder, PathNorm.ToDisk(serverFile.RelativePath));
 				Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 				if (!serverFile.IsDirectory)
@@ -245,8 +245,7 @@ namespace FloatySyncClient
 
 			foreach (var filePath in allFiles)
 			{
-				string relativePath = Path.GetRelativePath(localPath, filePath)
-											.Replace("\\", "/");
+				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, filePath));
 				Helpers.UploadFileToServer(filePath, DateTime.UtcNow, serverGroupId, groupKey, relativePath, config.ServerUrl);
 
 				var existing = db.Files
@@ -277,8 +276,7 @@ namespace FloatySyncClient
 
 			foreach (var directory in allDirectories)
 			{
-				string relativePath = Path.GetRelativePath(localPath, directory)
-											.Replace("\\", "/");
+				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, directory));
 				Helpers.CreateDirectoryOnServer(directory, serverGroupId, groupKey, relativePath, config.ServerUrl);
 
 				var existing = db.Files

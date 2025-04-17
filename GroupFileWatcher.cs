@@ -32,6 +32,9 @@ namespace FloatySyncClient
 			_serverUrl = serverUrl;
 		}
 
+		private string RelFromFull(string full) =>
+	PathNorm.Normalize(Path.GetRelativePath(_localFolder, full));
+
 		public void StartWatching()
 		{
 			Directory.CreateDirectory(_localFolder);
@@ -59,7 +62,7 @@ namespace FloatySyncClient
 
 				FileMetadata fileMetadata = new FileMetadata();
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
-				fileMetadata.RelativePath = Path.GetRelativePath(_localFolder, e.FullPath);
+				fileMetadata.RelativePath = RelFromFull(e.FullPath);
 				fileMetadata.StoredPathOnClient = e.FullPath;
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.GroupId = _serverGroupId.ToString();
@@ -67,13 +70,13 @@ namespace FloatySyncClient
 				_syncDbContext.Files.Add(fileMetadata);
 				_syncDbContext.SaveChanges();
 
-				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, Path.GetRelativePath(_localFolder, e.FullPath), _serverUrl);
+				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
 				FileMetadata directoryMetadata = new FileMetadata();
 				directoryMetadata.LastModifiedUtc = DateTime.UtcNow;
-				directoryMetadata.RelativePath = Path.GetRelativePath(_localFolder, e.FullPath);
+				directoryMetadata.RelativePath = RelFromFull(e.FullPath);
 				directoryMetadata.StoredPathOnClient = e.FullPath;
 				directoryMetadata.Checksum = null;
 				directoryMetadata.GroupId = _serverGroupId.ToString();
@@ -82,7 +85,7 @@ namespace FloatySyncClient
 				_syncDbContext.Files.Add(directoryMetadata);
 				_syncDbContext.SaveChanges();
 
-				Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, Path.GetRelativePath(_localFolder, e.FullPath), _serverUrl);
+				Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
 			}
 
 		}
@@ -97,7 +100,7 @@ namespace FloatySyncClient
 			if (File.Exists(e.FullPath))
 			{
 				var fileMetadata = _syncDbContext.Files
-					.First(f => f.RelativePath == Path.GetRelativePath(_localFolder, e.FullPath)
+					.First(f => f.RelativePath == RelFromFull(e.FullPath)
 									  && f.GroupId == _serverGroupId.ToString());
 
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
@@ -105,7 +108,7 @@ namespace FloatySyncClient
 
 				_syncDbContext.SaveChanges();
 
-				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, Path.GetRelativePath(_localFolder, e.FullPath), _serverUrl);
+				Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
@@ -123,17 +126,17 @@ namespace FloatySyncClient
 			if (File.Exists(e.FullPath))
 			{
 				var fileMetadata = _syncDbContext.Files
-					.First(f => f.RelativePath == Path.GetRelativePath(_localFolder, e.OldFullPath)
+					.First(f => f.RelativePath == PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath))
 									  && f.GroupId == _serverGroupId.ToString());
 
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
 				fileMetadata.StoredPathOnClient = e.FullPath;
-				fileMetadata.RelativePath = Path.GetRelativePath(_localFolder, e.FullPath);
+				fileMetadata.RelativePath = PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath));
 
 				_syncDbContext.SaveChanges();
 
-				Helpers.MoveFileOnServer(Path.GetRelativePath(_localFolder, e.OldFullPath), Path.GetRelativePath(_localFolder, e.FullPath), _serverGroupId, _groupKey, _serverUrl);
+				Helpers.MoveFileOnServer(PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)), _serverGroupId, _groupKey, _serverUrl);
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
@@ -145,8 +148,8 @@ namespace FloatySyncClient
 		{
 			HttpClient client = new HttpClient();
 
-			var oldRel = Path.GetRelativePath(_localFolder, oldFullPath);
-			var newRel = Path.GetRelativePath(_localFolder, fullPath);
+			var oldRel = RelFromFull(oldFullPath);
+			var newRel = RelFromFull(fullPath);
 
 			var body = new
 			{
@@ -172,7 +175,7 @@ namespace FloatySyncClient
 
 				if (!meta.IsDirectory && File.Exists(meta.StoredPathOnClient))
 				{
-					var newDiskPath = Path.Combine(_localFolder, newPath);
+					var newDiskPath = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
 					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
 					File.Move(meta.StoredPathOnClient, newPath, overwrite: true);
 					meta.StoredPathOnClient = newDiskPath;
@@ -194,8 +197,11 @@ namespace FloatySyncClient
 			Task.Delay(500);
 
 			var fileMetadata = _syncDbContext.Files
-				.First(f => f.RelativePath == Path.GetRelativePath(_localFolder, e.FullPath)
+				.FirstOrDefault(f => f.RelativePath == RelFromFull(e.FullPath)
 								  && f.GroupId == _serverGroupId.ToString());
+
+			if (fileMetadata == null)
+				return;
 
 			if (!Helpers.WasDirectory(e.FullPath, _serverGroupId))
 				Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
@@ -210,7 +216,7 @@ namespace FloatySyncClient
 
 		private async void HandleDirectoryDelete(string fullPath)
 		{
-			var rel = Path.GetRelativePath(_localFolder, fullPath);
+			var rel = RelFromFull(fullPath);
 
 			var query = $"groupId={_serverGroupId}&groupKeyPlaintext={_groupKey}&relativePath={Uri.EscapeDataString(rel)}";
 			await _httpClient.DeleteAsync($"{_serverUrl}/api/directories?{query}");
@@ -323,7 +329,7 @@ namespace FloatySyncClient
 			{
 				if (serverFile.IsDeleted)
 				{
-					string localPath = Path.Combine(_localFolder, serverFile.RelativePath);
+					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath));
 					if (File.Exists(localPath))
 					{
 						File.Delete(localPath);
@@ -346,7 +352,7 @@ namespace FloatySyncClient
 				else
 				{
 					// New or updated file
-					string localPath = Path.Combine(_localFolder, serverFile.RelativePath);
+					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath));
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 					if (!serverFile.IsDirectory)
