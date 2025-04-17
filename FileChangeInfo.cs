@@ -11,6 +11,7 @@ namespace FloatySyncClient
 		public int FileId { get; set; }
 		public string RelativePath { get; set; }
 		public bool IsDeleted { get; set; }
+		public bool IsDirectory { get; set; }
 		public DateTime LastModifiedUtc { get; set; }
 	}
 }

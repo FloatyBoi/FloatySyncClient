@@ -18,20 +18,18 @@ namespace FloatySyncClient
 		private readonly string _localFolder;
 		private readonly HttpClient _httpClient;
 
-		private SyncDbContext _syncDbContext;
 
 		private FileSystemWatcher _watcher;
 
 		public DateTime LastSyncUtc { get; set; } = DateTime.MinValue;
 
-		public GroupFileWatcher(int serverGroupId, string groupKey, string localFolder, string serverUrl, SyncDbContext syncDbContext)
+		public GroupFileWatcher(int serverGroupId, string groupKey, string localFolder, string serverUrl)
 		{
 			_serverGroupId = serverGroupId;
 			_groupKey = groupKey;
 			_localFolder = localFolder;
 			_httpClient = new HttpClient();
 			_serverUrl = serverUrl;
-			_syncDbContext = syncDbContext;
 		}
 
 		public void StartWatching()
@@ -49,11 +47,15 @@ namespace FloatySyncClient
 		}
 
 		// FileSystemWatcher handlers
-		//TODO: Sanitize the events somehow
 		//TODO: What happens on conflict?
 		private void OnCreated(object sender, FileSystemEventArgs e)
 		{
-			Task.Delay(100);
+			if (Program.isRunningSync)
+				return;
+
+			var _syncDbContext = new SyncDbContext();
+			Console.WriteLine("OnCreated");
+			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -72,13 +74,29 @@ namespace FloatySyncClient
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
-				//TODO: Directory
+				FileMetadata directoryMetadata = new FileMetadata();
+				directoryMetadata.LastModifiedUtc = DateTime.UtcNow;
+				directoryMetadata.RelativePath = Path.GetRelativePath(_localFolder, e.FullPath);
+				directoryMetadata.StoredPathOnClient = e.FullPath;
+				directoryMetadata.Checksum = null;
+				directoryMetadata.GroupId = _serverGroupId.ToString();
+				directoryMetadata.IsDirectory = true;
+
+				_syncDbContext.Files.Add(directoryMetadata);
+				_syncDbContext.SaveChanges();
+
+				Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, Path.GetRelativePath(_localFolder, e.FullPath), _serverUrl);
 			}
 
 		}
 		private void OnChanged(object sender, FileSystemEventArgs e)
 		{
-			Task.Delay(100);
+			if (Program.isRunningSync)
+				return;
+
+			var _syncDbContext = new SyncDbContext();
+			Console.WriteLine("OnChanged");
+			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -86,7 +104,7 @@ namespace FloatySyncClient
 					.First(f => f.RelativePath == Path.GetRelativePath(_localFolder, e.FullPath)
 									  && f.GroupId == _serverGroupId.ToString());
 
-				fileMetadata.Checksum = Helpers.ComputeFileChecksum(_localFolder);
+				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
 
 				_syncDbContext.SaveChanges();
@@ -95,12 +113,17 @@ namespace FloatySyncClient
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
-				//TODO: Directory
+				//Ignore (What can change in directories?)
 			}
 		}
 		private void OnRenamed(object sender, RenamedEventArgs e)
 		{
-			Task.Delay(100);
+			if (Program.isRunningSync)
+				return;
+
+			var _syncDbContext = new SyncDbContext();
+			Console.WriteLine("OnRenamed");
+			Task.Delay(500);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -119,23 +142,102 @@ namespace FloatySyncClient
 			}
 			else if (Directory.Exists(e.FullPath))
 			{
-				//TODO: Directory
+				HandleDirectoryRename(e.OldFullPath, e.FullPath);
 			}
 		}
+
+		private async void HandleDirectoryRename(string oldFullPath, string fullPath)
+		{
+			HttpClient client = new HttpClient();
+
+			var oldRel = Path.GetRelativePath(_localFolder, oldFullPath);
+			var newRel = Path.GetRelativePath(_localFolder, fullPath);
+
+			var body = new
+			{
+				GroupId = _serverGroupId,
+				GroupKey = _groupKey,
+				OldRelativePath = oldRel,
+				NewRelativePath = newRel,
+			};
+
+			await client.PostAsJsonAsync($"{_serverUrl}/api/directories/rename", body);
+
+			string oldPrefix = oldRel + "/";
+			string newPrefix = newRel + "/";
+
+			using var db = new SyncDbContext();
+			var affected = db.Files.Where(f => f.RelativePath.StartsWith(oldPrefix) &&
+												f.GroupId == _serverGroupId.ToString())
+												.ToList();
+			foreach (var meta in affected)
+			{
+				string tail = meta.RelativePath.Substring(oldPrefix.Length);
+				string newPath = newPrefix + tail;
+
+				if (!meta.IsDirectory && File.Exists(meta.StoredPathOnClient))
+				{
+					var newDiskPath = Path.Combine(_localFolder, newPath);
+					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
+					File.Move(meta.StoredPathOnClient, newPath, overwrite: true);
+					meta.StoredPathOnClient = newDiskPath;
+				}
+
+				meta.RelativePath = newPath;
+				meta.LastModifiedUtc = DateTime.UtcNow;
+			}
+
+			db.SaveChanges();
+		}
+
 		private void OnDeleted(object sender, FileSystemEventArgs e)
 		{
-			Task.Delay(100);
+			if (Program.isRunningSync)
+				return;
+
+			var _syncDbContext = new SyncDbContext();
+			Console.WriteLine("OnDeleted");
+			Task.Delay(500);
 
 			var fileMetadata = _syncDbContext.Files
 				.First(f => f.RelativePath == Path.GetRelativePath(_localFolder, e.FullPath)
 								  && f.GroupId == _serverGroupId.ToString());
 
-			Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
+			if (!Helpers.WasDirectory(e.FullPath, _serverGroupId))
+				Helpers.DeleteOnServer(fileMetadata.RelativePath, fileMetadata.Checksum, _serverGroupId, _groupKey, _serverUrl);
+			else
+			{
+				HandleDirectoryDelete(e.FullPath);
+			}
+
+			_syncDbContext.Remove(fileMetadata);
+			_syncDbContext.SaveChanges();
+		}
+
+		private async void HandleDirectoryDelete(string fullPath)
+		{
+			var rel = Path.GetRelativePath(_localFolder, fullPath);
+
+			var query = $"groupId={_serverGroupId}&groupKeyPlaintext={_groupKey}&relativePath={Uri.EscapeDataString(rel)}";
+			await _httpClient.DeleteAsync($"{_serverUrl}/api/directories?{query}");
+
+			string prefix = rel + "/";
+			using var db = new SyncDbContext();
+			var toDelete = db.Files.Where(f => f.RelativePath.StartsWith(prefix)
+											&& f.GroupId == _serverGroupId.ToString())
+				.ToList();
+
+			db.Files.RemoveRange(toDelete);
+			db.SaveChanges();
+
+			if (Directory.Exists(fullPath))
+				Directory.Delete(fullPath, true);
 		}
 
 		//TODO: What happens on conflict?
 		public async Task RunFullSync()
 		{
+			var _syncDbContext = new SyncDbContext();
 			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
 			await PushLocalChanges(lastSyncCopy);
@@ -165,6 +267,7 @@ namespace FloatySyncClient
 
 		private async Task PushLocalChanges(DateTime lastSyncUtc)
 		{
+			var _syncDbContext = new SyncDbContext();
 			var changedLocalFiles = _syncDbContext.Files
 				.Where(f => f.GroupId == _serverGroupId.ToString() && f.LastModifiedUtc > lastSyncUtc)
 				.ToList();
@@ -178,6 +281,14 @@ namespace FloatySyncClient
 			foreach (var localFile in changedLocalFiles)
 			{
 				string fullPath = localFile.StoredPathOnClient;
+
+				if (localFile.IsDirectory && Directory.Exists(fullPath))
+				{
+					Console.WriteLine($"[Sync] Creating directory on server: {localFile.RelativePath}");
+					Helpers.CreateDirectoryOnServer(fullPath, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
+					continue;
+				}
+
 				if (!File.Exists(fullPath))
 				{
 					Console.WriteLine($"[Sync] Skipping {localFile.RelativePath} because file missing locally.");
@@ -193,6 +304,7 @@ namespace FloatySyncClient
 
 		private async Task PullServerChanges(DateTime lastSyncUtc)
 		{
+			var _syncDbContext = new SyncDbContext();
 
 			string lastSyncParam = Uri.EscapeDataString(lastSyncUtc.ToString("O"));
 			string url = $"{_serverUrl}/api/files/changes?groupId={_serverGroupId}" +
@@ -223,6 +335,11 @@ namespace FloatySyncClient
 						File.Delete(localPath);
 						Console.WriteLine($"[Sync] Pulled server delete: {serverFile.RelativePath}");
 					}
+					else if (Directory.Exists(localPath))
+					{
+						Directory.Delete(localPath, true);
+						Console.WriteLine($"[Sync] Pulled server directory delete: {serverFile.RelativePath}");
+					}
 					// Remove from local DB
 					var existing = _syncDbContext.Files
 						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
@@ -238,9 +355,11 @@ namespace FloatySyncClient
 					string localPath = Path.Combine(_localFolder, serverFile.RelativePath);
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
-					// Download
-					await Helpers.DownloadFileServer(_serverGroupId, _groupKey, serverFile.RelativePath, localPath, _serverUrl);
-
+					if (!serverFile.IsDirectory)
+					{
+						// Download
+						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, serverFile.RelativePath, localPath, _serverUrl);
+					}
 					var existing = _syncDbContext.Files
 						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
 										  && f.GroupId == _serverGroupId.ToString());
@@ -269,6 +388,7 @@ namespace FloatySyncClient
 
 		private DateTime CalculateNewMaxSyncTime()
 		{
+			var _syncDbContext = new SyncDbContext();
 			DateTime maxLocal = _syncDbContext.Files
 				.Where(f => f.GroupId == _serverGroupId.ToString())
 				.Select(f => f.LastModifiedUtc)

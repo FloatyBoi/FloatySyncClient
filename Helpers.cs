@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore.Storage.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -61,7 +62,7 @@ namespace FloatySyncClient
 					$"&groupId={Uri.EscapeDataString(serverGroupId.ToString())}" +
 					$"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
 
-			var requestUrl = $"{serverUrl}/files/delete{queryString}";
+			var requestUrl = $"{serverUrl}/api/files/delete{queryString}";
 
 			var request = new HttpRequestMessage(HttpMethod.Delete, requestUrl);
 
@@ -157,6 +158,42 @@ namespace FloatySyncClient
 
 			using var response = await httpClient.PostAsync(requestUrl, formData);
 
+			response.EnsureSuccessStatusCode();
+		}
+
+		public static bool WasDirectory(string fullPath, int serverGroupId)
+		{
+			if (Directory.Exists(fullPath)) return true;
+			if (File.Exists(fullPath)) return false;
+
+			using var db = new SyncDbContext();
+			var meta = db.Files
+						 .FirstOrDefault(f => f.StoredPathOnClient == fullPath &&
+											  f.GroupId == serverGroupId.ToString());
+
+			if (meta != null) return meta.IsDirectory;
+
+			return false;
+		}
+
+		internal static async void CreateDirectoryOnServer(string fullPath, int serverGroupId, string groupKey, string relativePath, string serverUrl)
+		{
+			HttpClient httpClient = new HttpClient();
+
+			var requestUrl = $"{serverUrl}/api/directories/create";
+
+			var requestBodyObject = new
+			{
+				relativePath = relativePath,
+				groupKeyPlaintext = groupKey,
+				groupId = serverGroupId
+			};
+
+			string jsonBody = JsonSerializer.Serialize(requestBodyObject);
+
+			using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+			HttpResponseMessage response = await httpClient.PostAsync(requestUrl, content);
 			response.EnsureSuccessStatusCode();
 		}
 	}

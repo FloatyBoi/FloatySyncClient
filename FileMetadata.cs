@@ -14,5 +14,7 @@ namespace FloatySyncClient
 		public string Checksum { get; set; }
 		public string GroupId { get; set; }
 		public string StoredPathOnClient { get; set; }
+
+		public bool IsDirectory { get; set; }
 	}
 }

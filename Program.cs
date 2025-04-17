@@ -10,6 +10,8 @@ namespace FloatySyncClient
 {
 	internal class Program
 	{
+		public static bool isRunningSync = false;
+
 		static ClientConfig config = null;
 		static async Task Main(string[] args)
 		{
@@ -48,8 +50,7 @@ namespace FloatySyncClient
 					localGroup.IdOnServer,
 					localGroup.Key,
 					localGroup.LocalFolder,
-					config.ServerUrl,
-					db);
+					config.ServerUrl);
 
 				watcher.LastSyncUtc = localGroup.LastSyncUtc;
 
@@ -65,7 +66,9 @@ namespace FloatySyncClient
 					{
 						foreach (var wg in watchers)
 						{
+							isRunningSync = true;
 							await wg.RunFullSync();
+							isRunningSync = false;
 						}
 						await Task.Delay(TimeSpan.FromMinutes(1));
 					}
@@ -114,8 +117,7 @@ namespace FloatySyncClient
 						group.IdOnServer,
 						group.Key,
 						group.LocalFolder,
-						config.ServerUrl,
-						db);
+						config.ServerUrl);
 
 					watcher.LastSyncUtc = group.LastSyncUtc;
 
@@ -154,8 +156,7 @@ namespace FloatySyncClient
 						group.IdOnServer,
 						group.Key,
 						group.LocalFolder,
-						config.ServerUrl,
-						db);
+						config.ServerUrl);
 
 					watcher.LastSyncUtc = group.LastSyncUtc;
 
