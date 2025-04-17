@@ -85,87 +85,94 @@ namespace FloatySyncClient
 			//TODO: Authentication with the server. Is group valid?
 			while (true)
 			{
-				Console.WriteLine("1) Create New Group");
-				Console.WriteLine("2) Join Existing Group");
-				var choice = Console.ReadLine();
-
-				if (choice == "1")
+				try
 				{
-					Console.Write("Enter local folder path: ");
-					var localPath = Console.ReadLine();
+					Console.WriteLine("1) Create New Group");
+					Console.WriteLine("2) Join Existing Group");
+					var choice = Console.ReadLine();
 
-					Console.Write("Enter group name: ");
-					var groupName = Console.ReadLine();
-
-					Console.Write("Enter group key: ");
-					var groupKey = Console.ReadLine();
-
-					int serverGroupId = await Helpers.CreateGroupOnServer(groupName, groupKey, config.ServerUrl);
-
-					var group = new Group
+					if (choice == "1")
 					{
-						IdOnServer = serverGroupId,
-						Name = groupName,
-						Key = groupKey,
-						LocalFolder = localPath,
-						LastSyncUtc = DateTime.MinValue
-					};
-					db.Groups.Add(group);
-					db.SaveChanges();
+						Console.Write("Enter local folder path: ");
+						var localPath = Console.ReadLine();
 
-					ForceUploadAll(localPath, serverGroupId, groupKey);
+						Console.Write("Enter group name: ");
+						var groupName = Console.ReadLine();
 
-					var watcher = new GroupFileWatcher(
-						group.IdOnServer,
-						group.Key,
-						group.LocalFolder,
-						config.ServerUrl);
+						Console.Write("Enter group key: ");
+						var groupKey = Console.ReadLine();
 
-					watcher.LastSyncUtc = group.LastSyncUtc;
+						int serverGroupId = await Helpers.CreateGroupOnServer(groupName, groupKey, config.ServerUrl);
 
-					watcher.StartWatching();
-					watchers.Add(watcher);
+						var group = new Group
+						{
+							IdOnServer = serverGroupId,
+							Name = groupName,
+							Key = groupKey,
+							LocalFolder = localPath,
+							LastSyncUtc = DateTime.MinValue
+						};
+						db.Groups.Add(group);
+						db.SaveChanges();
 
-					Console.WriteLine($"Succesfully created group {groupName} with id: {group.IdOnServer}");
+						ForceUploadAll(localPath, serverGroupId, groupKey);
+
+						var watcher = new GroupFileWatcher(
+							group.IdOnServer,
+							group.Key,
+							group.LocalFolder,
+							config.ServerUrl);
+
+						watcher.LastSyncUtc = group.LastSyncUtc;
+
+						watcher.StartWatching();
+						watchers.Add(watcher);
+
+						Console.WriteLine($"Succesfully created group {groupName} with id: {group.IdOnServer}");
+					}
+					else if (choice == "2")
+					{
+						Console.Write("Enter server group ID: ");
+						int serverGroupId = int.Parse(Console.ReadLine()!);
+
+						Console.Write("Enter group key: ");
+						var groupKey = Console.ReadLine();
+
+						Console.Write("Enter local folder path (MUST be empty): ");
+						var localPath = Console.ReadLine();
+
+						var groupName = await Helpers.GetGroupNameByIdFromServer(serverGroupId, config.ServerUrl);
+
+						var group = new Group
+						{
+							IdOnServer = serverGroupId,
+							Name = groupName,
+							Key = groupKey,
+							LocalFolder = localPath,
+							LastSyncUtc = DateTime.MinValue
+						};
+						db.Groups.Add(group);
+						db.SaveChanges();
+
+						ForceDownloadAll(localPath, serverGroupId, groupKey);
+
+						var watcher = new GroupFileWatcher(
+							group.IdOnServer,
+							group.Key,
+							group.LocalFolder,
+							config.ServerUrl);
+
+						watcher.LastSyncUtc = group.LastSyncUtc;
+
+						watcher.StartWatching();
+						watchers.Add(watcher);
+
+						Console.WriteLine($"Succesfully joined group {groupName} with id: {serverGroupId}");
+					}
 				}
-				else if (choice == "2")
+				catch (Exception ex)
 				{
-					Console.Write("Enter server group ID: ");
-					int serverGroupId = int.Parse(Console.ReadLine()!);
-
-					Console.Write("Enter group key: ");
-					var groupKey = Console.ReadLine();
-
-					Console.Write("Enter local folder path (MUST be empty): ");
-					var localPath = Console.ReadLine();
-
-					var groupName = await Helpers.GetGroupNameByIdFromServer(serverGroupId, config.ServerUrl);
-
-					var group = new Group
-					{
-						IdOnServer = serverGroupId,
-						Name = groupName,
-						Key = groupKey,
-						LocalFolder = localPath,
-						LastSyncUtc = DateTime.MinValue
-					};
-					db.Groups.Add(group);
-					db.SaveChanges();
-
-					ForceDownloadAll(localPath, serverGroupId, groupKey);
-
-					var watcher = new GroupFileWatcher(
-						group.IdOnServer,
-						group.Key,
-						group.LocalFolder,
-						config.ServerUrl);
-
-					watcher.LastSyncUtc = group.LastSyncUtc;
-
-					watcher.StartWatching();
-					watchers.Add(watcher);
-
-					Console.WriteLine($"Succesfully joined group {groupName} with id: {serverGroupId}");
+					Console.WriteLine($"Request failed: {ex.Message}");
 				}
 			}
 		}
