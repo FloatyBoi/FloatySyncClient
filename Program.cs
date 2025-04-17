@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Serilog.Events;
+using Serilog;
+using System;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
@@ -16,6 +18,29 @@ namespace FloatySyncClient
 		static async Task Main(string[] args)
 		{
 			var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
+
+			Log.Logger = new LoggerConfiguration()
+				.MinimumLevel.Debug()
+				.WriteTo.Console()
+				.WriteTo.File("logs/sync-.log",
+						rollingInterval: RollingInterval.Day,
+						retainedFileCountLimit: 7,
+						restrictedToMinimumLevel: LogEventLevel.Debug)
+				.CreateLogger();
+
+
+			AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+			{
+				Log.Fatal((Exception)e.ExceptionObject, "Unhandled exception");
+				Log.CloseAndFlush();
+			};
+
+			TaskScheduler.UnobservedTaskException += (s, e) =>
+			{
+				Log.Fatal(e.Exception, "Unobserved task exception");
+				e.SetObserved();
+				Log.CloseAndFlush();
+			};
 
 			if (File.Exists(configPath))
 			{
@@ -77,7 +102,7 @@ namespace FloatySyncClient
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine(ex.ToString());
+					Log.Error(ex, "Error inside background sync loop");
 				}
 			});
 
