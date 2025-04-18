@@ -98,8 +98,8 @@ namespace FloatySyncClient
 				});
 				db.SaveChanges();
 			}
-
-			response.EnsureSuccessStatusCode();
+			else
+				response.EnsureSuccessStatusCode();
 		}
 
 		internal static async Task DownloadFileServer(int groupId, string? groupKey, string relativePath, string localPath, string serverUrl)
@@ -195,6 +195,7 @@ namespace FloatySyncClient
 
 				if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
 				{
+					fileStream.Dispose();
 					Console.WriteLine($"[Conflict] Server newer → keeping local copy as backup " +
 						  $"and pulling server version: {relativePath}");
 
@@ -213,8 +214,8 @@ namespace FloatySyncClient
 					row.StoredPathOnClient = filePath;
 					db.SaveChanges();
 				}
-
-				resp.EnsureSuccessStatusCode();
+				else
+					resp.EnsureSuccessStatusCode();
 
 			}
 			catch (HttpRequestException)
