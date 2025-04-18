@@ -332,7 +332,7 @@ namespace FloatySyncClient
 			var _syncDbContext = new SyncDbContext();
 			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
-			await PushLocalChanges(lastSyncCopy); // No need to actually push, but we do it anyways
+			//await PushLocalChanges(lastSyncCopy); // No need to actually push
 
 			await PullServerChanges(lastSyncCopy);
 
