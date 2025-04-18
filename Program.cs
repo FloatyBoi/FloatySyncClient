@@ -107,7 +107,6 @@ namespace FloatySyncClient
 			});
 
 			Console.WriteLine("Started background synching of directories.\nAdditional Options:");
-			//TODO: Authentication with the server. Is group valid?
 			while (true)
 			{
 				try
@@ -140,7 +139,7 @@ namespace FloatySyncClient
 						db.Groups.Add(group);
 						db.SaveChanges();
 
-						ForceUploadAll(localPath, serverGroupId, groupKey);
+						await ForceUploadAll(localPath, serverGroupId, groupKey);
 
 						var watcher = new GroupFileWatcher(
 							group.IdOnServer,
@@ -179,7 +178,7 @@ namespace FloatySyncClient
 						db.Groups.Add(group);
 						db.SaveChanges();
 
-						ForceDownloadAll(localPath, serverGroupId, groupKey);
+						await ForceDownloadAll(localPath, serverGroupId, groupKey);
 
 						var watcher = new GroupFileWatcher(
 							group.IdOnServer,
@@ -203,7 +202,7 @@ namespace FloatySyncClient
 			}
 		}
 
-		private static async void ForceDownloadAll(string? localFolder, int groupId, string? groupKey)
+		private static async Task ForceDownloadAll(string? localFolder, int groupId, string? groupKey)
 		{
 			HttpClient client = new HttpClient();
 
@@ -268,7 +267,7 @@ namespace FloatySyncClient
 			Console.WriteLine($"Download completed for group {groupId}");
 		}
 
-		private static void ForceUploadAll(string? localPath, int serverGroupId, string? groupKey)
+		private static async Task ForceUploadAll(string? localPath, int serverGroupId, string? groupKey)
 		{
 			HttpClient client = new HttpClient();
 
@@ -281,7 +280,7 @@ namespace FloatySyncClient
 			foreach (var filePath in allFiles)
 			{
 				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, filePath));
-				Helpers.UploadFileToServer(filePath, DateTime.UtcNow, serverGroupId, groupKey, relativePath, config.ServerUrl);
+				await Helpers.UploadFileToServer(filePath, DateTime.UtcNow, serverGroupId, groupKey, relativePath, config.ServerUrl);
 
 				var existing = db.Files
 					.FirstOrDefault(f => f.RelativePath == relativePath &&
@@ -312,7 +311,7 @@ namespace FloatySyncClient
 			foreach (var directory in allDirectories)
 			{
 				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, directory));
-				Helpers.CreateDirectoryOnServer(directory, serverGroupId, groupKey, relativePath, config.ServerUrl);
+				await Helpers.CreateDirectoryOnServer(directory, serverGroupId, groupKey, relativePath, config.ServerUrl);
 
 				var existing = db.Files
 					.FirstOrDefault(f => f.RelativePath == relativePath &&

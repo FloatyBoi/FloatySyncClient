@@ -20,7 +20,7 @@ namespace FloatySyncClient
 		private readonly HttpClient _httpClient;
 
 
-		private FileSystemWatcher _watcher;
+		private FileSystemWatcher? _watcher;
 
 		public DateTime LastSyncUtc { get; set; } = DateTime.MinValue;
 
@@ -575,7 +575,7 @@ namespace FloatySyncClient
 			db.SaveChanges();
 		}
 
-		private void QueueChange(string type, string rel, string checksum, string? aux = null)
+		private void QueueChange(string type, string rel, string? checksum, string? aux = null)
 		{
 			using var db = new SyncDbContext();
 
