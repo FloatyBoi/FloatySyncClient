@@ -209,7 +209,7 @@ namespace FloatySyncClient
 					using var db = new SyncDbContext();
 					var row = db.Files.First(f => f.GroupId == serverGroupId.ToString()
 											   && f.RelativePath == relativePath);
-					row.LastModifiedUtc = File.GetLastWriteTimeUtc(filePath);
+					row.LastModifiedUtc = DateTime.UtcNow;
 					row.Checksum = Helpers.ComputeFileChecksum(filePath);
 					row.StoredPathOnClient = filePath;
 					db.SaveChanges();
