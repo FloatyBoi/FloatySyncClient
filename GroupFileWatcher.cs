@@ -74,6 +74,7 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -125,6 +126,7 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -160,6 +162,7 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.MoveFileOnServer(PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)), _serverGroupId, _groupKey, _serverUrl);
+					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -171,6 +174,7 @@ namespace FloatySyncClient
 				try
 				{
 					await HandleDirectoryRename(e.OldFullPath, e.FullPath);
+					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -187,6 +191,7 @@ namespace FloatySyncClient
 			try
 			{
 				await HandleDirectoryRename(Path.Combine(_localFolder, p.RelativePath), Path.Combine(_localFolder, p.AuxPath!));
+				LastSyncUtc = DateTime.UtcNow;
 				return true;
 			}
 			catch
@@ -272,6 +277,7 @@ namespace FloatySyncClient
 				{
 					_syncDbContext.Remove(fileMetadata);
 					await HandleDirectoryDelete(e.FullPath);
+					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -289,6 +295,7 @@ namespace FloatySyncClient
 			try
 			{
 				await HandleDirectoryDelete(path);
+				LastSyncUtc = DateTime.UtcNow;
 				return true;
 			}
 			catch
@@ -325,7 +332,7 @@ namespace FloatySyncClient
 			var _syncDbContext = new SyncDbContext();
 			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
-			// await PushLocalChanges(lastSyncCopy); // No need to actually push, only creates problems here
+			await PushLocalChanges(lastSyncCopy); // No need to actually push, but we do it anyways
 
 			await PullServerChanges(lastSyncCopy);
 
