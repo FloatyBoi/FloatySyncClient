@@ -139,7 +139,7 @@ namespace FloatySyncClient
 
 			string content = await response.Content.ReadAsStringAsync();
 
-			GroupResponse groupResponse = JsonSerializer.Deserialize<GroupResponse>(content);
+			GroupResponse groupResponse = JsonSerializer.Deserialize<GroupResponse>(content, JsonSerializerOptions.Web);
 
 			return groupResponse?.Name;
 		}
