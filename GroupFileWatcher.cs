@@ -55,7 +55,7 @@ namespace FloatySyncClient
 		//TODO: What happens on conflict?
 		private async void OnCreated(object sender, FileSystemEventArgs e)
 		{
-			if (_suppressEvents) return;
+			if (_suppressEvents || Program.isSynching) return;
 
 			var _syncDbContext = new SyncDbContext();
 			await WaitForFileClose(e.FullPath);
@@ -109,7 +109,7 @@ namespace FloatySyncClient
 		}
 		private async void OnChanged(object sender, FileSystemEventArgs e)
 		{
-			if (_suppressEvents) return;
+			if (_suppressEvents || Program.isSynching) return;
 
 			var _syncDbContext = new SyncDbContext();
 			await WaitForFileClose(e.FullPath);
@@ -144,7 +144,7 @@ namespace FloatySyncClient
 		}
 		private async void OnRenamed(object sender, RenamedEventArgs e)
 		{
-			if (_suppressEvents) return;
+			if (_suppressEvents || Program.isSynching) return;
 
 			var _syncDbContext = new SyncDbContext();
 			await WaitForFileClose(e.FullPath);
@@ -252,7 +252,7 @@ namespace FloatySyncClient
 
 		private async void OnDeleted(object sender, FileSystemEventArgs e)
 		{
-			if (_suppressEvents) return;
+			if (_suppressEvents || Program.isSynching) return;
 
 			var _syncDbContext = new SyncDbContext();
 			await Task.Delay(500);

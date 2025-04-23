@@ -13,6 +13,7 @@ namespace FloatySyncClient
 	internal class Program
 	{
 		static ClientConfig? config;
+		public static bool isSynching = false;
 		static async Task Main(string[] args)
 		{
 			var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
@@ -91,8 +92,10 @@ namespace FloatySyncClient
 					{
 						foreach (var wg in watchers)
 						{
+							isSynching = true;
 							await wg.FlushQueue();
 							await wg.RunFullSync();
+							isSynching = false;
 						}
 						await Task.Delay(TimeSpan.FromMinutes(1));
 					}
