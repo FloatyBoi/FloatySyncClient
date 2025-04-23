@@ -518,18 +518,26 @@ namespace FloatySyncClient
 				// New file / directory
 				if (!dbRows.TryGetValue(rel, out var row))
 				{
+					string? checksum = null;
+
+					if (!isDir)
+					{
+						if (!File.Exists(path))
+							continue;
+						checksum = Helpers.ComputeFileChecksum(path);
+					}
 					db.Files!.Add(new FileMetadata
 					{
 						RelativePath = rel,
 						IsDirectory = isDir,
 						IsDeleted = false,
 						GroupId = _serverGroupId.ToString(),
-						LastModifiedUtc = File.GetLastWriteTimeUtc(path),
+						LastModifiedUtc = DateTime.UtcNow,
 						StoredPathOnClient = path,
-						Checksum = isDir ? null : Helpers.ComputeFileChecksum(path)
+						Checksum = checksum
 					});
 
-					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum: Helpers.ComputeFileChecksum(path));
+					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum);
 					continue;
 				}
 
@@ -537,7 +545,7 @@ namespace FloatySyncClient
 				if (row.IsDeleted)
 				{
 					row.IsDeleted = false;
-					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum: row.Checksum);
+					QueueChange(isDir ? "CreateDir" : "Upload", rel, row.Checksum);
 				}
 
 				// File updated
@@ -548,7 +556,7 @@ namespace FloatySyncClient
 					{
 						row.LastModifiedUtc = lastWrite;
 						row.Checksum = Helpers.ComputeFileChecksum(path);
-						QueueChange("Upload", rel, checksum: row.Checksum);
+						QueueChange("Upload", rel, row.Checksum);
 					}
 				}
 
@@ -565,7 +573,7 @@ namespace FloatySyncClient
 			}
 
 			db.SaveChanges();
-			Console.WriteLine($"[Scan] Completed initial scan for group {_serverGroupId}");
+			Console.WriteLine($"[Scan] Completed full scan for group {_serverGroupId}");
 		}
 
 		public async Task FlushQueue()

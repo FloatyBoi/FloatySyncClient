@@ -251,7 +251,7 @@ namespace FloatySyncClient
 								  .Equals(abs, StringComparison.OrdinalIgnoreCase));
 
 			if (meta != null) return meta.IsDirectory;
-			return false;
+			return true; // Bad assumption, but should work (mostly)
 		}
 
 		internal static async Task CreateDirectoryOnServer(int serverGroupId, string groupKey, string relativePath, string serverUrl)

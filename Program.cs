@@ -62,6 +62,11 @@ namespace FloatySyncClient
 				Environment.Exit(0);
 			}
 
+			//Sanitize server ip
+			config.ServerUrl = config.ServerUrl.Trim();
+			if (config.ServerUrl.EndsWith('/'))
+				config.ServerUrl = config.ServerUrl.Remove(config.ServerUrl.LastIndexOf('/'));
+
 			using var db = new SyncDbContext();
 			db.Database.EnsureCreated();
 			var allGroups = db.Groups!.ToList();
@@ -92,6 +97,7 @@ namespace FloatySyncClient
 					{
 						foreach (var wg in watchers)
 						{
+							wg.ScanLocalFolder();
 							isSynching = true;
 							await wg.FlushQueue();
 							await wg.RunFullSync();
