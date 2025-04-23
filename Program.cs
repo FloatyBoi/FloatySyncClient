@@ -120,6 +120,7 @@ namespace FloatySyncClient
 				{
 					Console.WriteLine("1) Create New Group");
 					Console.WriteLine("2) Join Existing Group");
+					Console.WriteLine("3) List Joined Group(s)");
 					var choice = Console.ReadLine();
 
 					if (choice == "1")
@@ -144,6 +145,7 @@ namespace FloatySyncClient
 							LastSyncUtc = DateTime.MinValue
 						};
 						db.Groups!.Add(group);
+						allGroups.Add(group);
 						db.SaveChanges();
 
 						await ForceUploadAll(localPath, serverGroupId, groupKey);
@@ -183,6 +185,7 @@ namespace FloatySyncClient
 							LastSyncUtc = DateTime.MinValue
 						};
 						db.Groups!.Add(group);
+						allGroups.Add(group);
 						db.SaveChanges();
 
 						await ForceDownloadAll(localPath, serverGroupId, groupKey);
@@ -199,6 +202,15 @@ namespace FloatySyncClient
 						watchers.Add(watcher);
 
 						Console.WriteLine($"Succesfully joined group {groupName} with id: {serverGroupId}");
+					}
+					else if (choice == "3")
+					{
+						Console.WriteLine();
+						foreach (var localGroup in allGroups)
+						{
+							Console.WriteLine($"{localGroup.Id}: {localGroup.Name} - {localGroup.Key}");
+						}
+						Console.WriteLine();
 					}
 				}
 				catch (Exception ex)
