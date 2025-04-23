@@ -260,7 +260,7 @@ namespace FloatySyncClient
 				var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(serverFile.RelativePath)
 																	&& f.GroupId == groupId.ToString());
 
-				if (existingDirectory == null)
+				if (Directory.Exists(directoryName) && Path.GetDirectoryName(localPath) != localFolder && existingDirectory == null)
 				{
 					db.Files!.Add(new FileMetadata
 					{

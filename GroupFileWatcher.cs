@@ -296,7 +296,9 @@ namespace FloatySyncClient
 					var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(oldRel)
 																	&& f.GroupId == _serverGroupId.ToString());
 
-					if (existingDirectory == null)
+					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
+
+					if (Directory.Exists(Path.GetDirectoryName(newDiskPath)) && Path.GetDirectoryName(newDiskPath) != _localFolder && existingDirectory == null)
 					{
 						db.Files!.Add(new FileMetadata
 						{
@@ -316,7 +318,6 @@ namespace FloatySyncClient
 						existingDirectory.RelativePath = newRel;
 						existingDirectory.LastModifiedUtc = DateTime.UtcNow;
 					}
-					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
 
 					File.Move(meta.StoredPathOnClient, newDiskPath, overwrite: true);
 					meta.StoredPathOnClient = newDiskPath;
@@ -553,7 +554,9 @@ namespace FloatySyncClient
 					var existingDirectory = _syncDbContext.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(serverFile.RelativePath)
 																	&& f.GroupId == _serverGroupId.ToString());
 
-					if (existingDirectory == null)
+					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+
+					if (Directory.Exists(Path.GetDirectoryName(localPath)) && Path.GetDirectoryName(localPath) != _localFolder && Path.GetDirectoryName(localPath) != _localFolder && existingDirectory == null)
 					{
 						_syncDbContext.Files!.Add(new FileMetadata
 						{
@@ -567,8 +570,6 @@ namespace FloatySyncClient
 
 						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, Path.GetDirectoryName(serverFile.RelativePath)!, url);
 					}
-
-					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 					if (!serverFile.IsDirectory)
 					{
@@ -628,58 +629,63 @@ namespace FloatySyncClient
 						   .Where(f => f.GroupId == _serverGroupId.ToString())
 						   .ToDictionary(f => f.RelativePath, f => f);
 
-			foreach (var path in Directory.EnumerateFileSystemEntries(
-						   _localFolder, "*", SearchOption.AllDirectories))
+			var fileSystemEntries = Directory.EnumerateFileSystemEntries(
+						   _localFolder, "*", SearchOption.AllDirectories);
+
+			if (fileSystemEntries.Any())
 			{
-				var rel = RelFromFull(path);
-				bool isDir = Directory.Exists(path);
-
-				// New file / directory
-				if (!dbRows.TryGetValue(rel, out var row))
+				foreach (var path in fileSystemEntries)
 				{
-					string? checksum = null;
+					var rel = RelFromFull(path);
+					bool isDir = Directory.Exists(path);
 
+					// New file / directory
+					if (!dbRows.TryGetValue(rel, out var row))
+					{
+						string? checksum = null;
+
+						if (!isDir)
+						{
+							if (!File.Exists(path))
+								continue;
+							checksum = Helpers.ComputeFileChecksum(path);
+						}
+						db.Files!.Add(new FileMetadata
+						{
+							RelativePath = rel,
+							IsDirectory = isDir,
+							IsDeleted = false,
+							GroupId = _serverGroupId.ToString(),
+							LastModifiedUtc = DateTime.UtcNow,
+							StoredPathOnClient = path,
+							Checksum = checksum
+						});
+
+						QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum);
+						continue;
+					}
+
+					// Exists but was deleted
+					if (row.IsDeleted)
+					{
+						row.IsDeleted = false;
+						QueueChange(isDir ? "CreateDir" : "Upload", rel, row.Checksum);
+					}
+
+					// File updated
 					if (!isDir)
 					{
-						if (!File.Exists(path))
-							continue;
-						checksum = Helpers.ComputeFileChecksum(path);
+						var lastWrite = File.GetLastWriteTimeUtc(path);
+						if (lastWrite > row.LastModifiedUtc)
+						{
+							row.LastModifiedUtc = lastWrite;
+							row.Checksum = Helpers.ComputeFileChecksum(path);
+							QueueChange("Upload", rel, row.Checksum);
+						}
 					}
-					db.Files!.Add(new FileMetadata
-					{
-						RelativePath = rel,
-						IsDirectory = isDir,
-						IsDeleted = false,
-						GroupId = _serverGroupId.ToString(),
-						LastModifiedUtc = DateTime.UtcNow,
-						StoredPathOnClient = path,
-						Checksum = checksum
-					});
 
-					QueueChange(isDir ? "CreateDir" : "Upload", rel, checksum);
-					continue;
+					dbRows.Remove(rel);
 				}
-
-				// Exists but was deleted
-				if (row.IsDeleted)
-				{
-					row.IsDeleted = false;
-					QueueChange(isDir ? "CreateDir" : "Upload", rel, row.Checksum);
-				}
-
-				// File updated
-				if (!isDir)
-				{
-					var lastWrite = File.GetLastWriteTimeUtc(path);
-					if (lastWrite > row.LastModifiedUtc)
-					{
-						row.LastModifiedUtc = lastWrite;
-						row.Checksum = Helpers.ComputeFileChecksum(path);
-						QueueChange("Upload", rel, row.Checksum);
-					}
-				}
-
-				dbRows.Remove(rel);
 			}
 
 			// Rest is missing on disk
