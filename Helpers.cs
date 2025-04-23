@@ -240,16 +240,17 @@ namespace FloatySyncClient
 
 		public static bool WasDirectory(string fullPath, int serverGroupId)
 		{
-			if (Directory.Exists(fullPath)) return true;
-			if (File.Exists(fullPath)) return false;
+			var abs = Path.GetFullPath(fullPath);
 
 			using var db = new SyncDbContext();
 			var meta = db.Files!
-						 .FirstOrDefault(f => string.Equals(f.StoredPathOnClient, Path.GetFullPath(fullPath), StringComparison.OrdinalIgnoreCase) &&
-											  f.GroupId == serverGroupId.ToString());
+						 .Where(f => f.GroupId == serverGroupId.ToString())
+						 .AsEnumerable()
+						 .FirstOrDefault(f =>
+							  Path.GetFullPath(f.StoredPathOnClient!)
+								  .Equals(abs, StringComparison.OrdinalIgnoreCase));
 
 			if (meta != null) return meta.IsDirectory;
-
 			return false;
 		}
 
