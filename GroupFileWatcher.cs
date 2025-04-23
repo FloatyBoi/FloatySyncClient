@@ -683,6 +683,9 @@ namespace FloatySyncClient
 
 		private async Task WaitForFileClose(string path)
 		{
+			if (Directory.Exists(path))
+				return;
+
 			//Wait for up to 2 seconds
 			for (int i = 0; i < 20; i++)
 			{
