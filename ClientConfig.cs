@@ -8,6 +8,6 @@ namespace FloatySyncClient
 {
 	public class ClientConfig
 	{
-		public string ServerUrl { get; set; }
+		public string? ServerUrl { get; set; }
 	}
 }

@@ -13,11 +13,11 @@ namespace FloatySyncClient
 {
 	public class Helpers
 	{
-		public static string ComputeFileChecksum(string filePath)
+		public static string? ComputeFileChecksum(string filePath)
 		{
 			// Ensure the file exists
 			if (!File.Exists(filePath))
-				throw new FileNotFoundException("File not found.", filePath);
+				return null;
 
 			using var sha256 = SHA256.Create();
 			using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
@@ -49,7 +49,7 @@ namespace FloatySyncClient
 			response.EnsureSuccessStatusCode();
 			string result = await response.Content.ReadAsStringAsync();
 
-			var value = JsonSerializer.Deserialize<GroupIdResponse>(result, JsonSerializerOptions.Web).GroupId;
+			var value = JsonSerializer.Deserialize<GroupIdResponse>(result, JsonSerializerOptions.Web)!.GroupId;
 			return value;
 		}
 
@@ -58,7 +58,7 @@ namespace FloatySyncClient
 			HttpClient httpClient = new HttpClient();
 
 			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
-					$"&checksum={Uri.EscapeDataString(checksum)}" +
+					$"&checksum={Uri.EscapeDataString(checksum!)}" +
 					$"&groupId={Uri.EscapeDataString(serverGroupId.ToString())}" +
 					$"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
 
@@ -75,7 +75,6 @@ namespace FloatySyncClient
 			{
 				Console.WriteLine($"[Conflict] Checksum mismatch deleting {relativePath} – " +
 						  $"downloading authoritative copy.");
-
 				var disk = Path.Combine(localRoot, PathNorm.ToDisk(relativePath));
 				if (File.Exists(disk))
 				{
@@ -87,15 +86,27 @@ namespace FloatySyncClient
 				await DownloadFileServer(serverGroupId, groupKey, relativePath, disk, serverUrl);
 
 				using var db = new SyncDbContext();
-				db.Files.Add(new FileMetadata
+
+				var existing = db.Files!.FirstOrDefault(f => f.RelativePath == relativePath &&
+															f.GroupId == serverGroupId.ToString());
+				if (existing != null)
 				{
-					Checksum = ComputeFileChecksum(disk),
-					IsDeleted = false,
-					RelativePath = relativePath,
-					StoredPathOnClient = disk,
-					LastModifiedUtc = DateTime.UtcNow,
-					GroupId = serverGroupId.ToString()
-				});
+					existing.IsDeleted = false;
+					existing.Checksum = ComputeFileChecksum(disk);
+					existing.LastModifiedUtc = DateTime.UtcNow;
+				}
+				else
+				{
+					db.Files!.Add(new FileMetadata
+					{
+						Checksum = ComputeFileChecksum(disk),
+						IsDeleted = false,
+						RelativePath = relativePath,
+						StoredPathOnClient = disk,
+						LastModifiedUtc = DateTime.UtcNow,
+						GroupId = serverGroupId.ToString()
+					});
+				}
 				db.SaveChanges();
 			}
 			else
@@ -108,7 +119,7 @@ namespace FloatySyncClient
 
 			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
 						  $"&groupId={groupId}" +
-						  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey)}";
+						  $"&groupKeyPlaintext={Uri.EscapeDataString(groupKey!)}";
 
 			var requestUrl = $"{serverUrl}/api/files/download{queryString}";
 
@@ -118,7 +129,7 @@ namespace FloatySyncClient
 			var directory = Path.GetDirectoryName(localPath);
 			if (!string.IsNullOrEmpty(relativePath) && !Directory.Exists(directory))
 			{
-				Directory.CreateDirectory(directory);
+				Directory.CreateDirectory(directory!);
 			}
 
 			using var responseStream = await response.Content.ReadAsStreamAsync();
@@ -139,9 +150,9 @@ namespace FloatySyncClient
 
 			string content = await response.Content.ReadAsStringAsync();
 
-			GroupResponse groupResponse = JsonSerializer.Deserialize<GroupResponse>(content, JsonSerializerOptions.Web);
+			GroupResponse groupResponse = JsonSerializer.Deserialize<GroupResponse>(content, JsonSerializerOptions.Web)!;
 
-			return groupResponse?.Name;
+			return groupResponse?.Name!;
 		}
 
 		internal static async Task MoveFileOnServer(string oldRelativePath, string newRelativePath, int serverGroupId, string groupKey, string serverUrl)
@@ -175,9 +186,9 @@ namespace FloatySyncClient
 			formData.Add(new StringContent(relativePath), "relativePath");
 			formData.Add(new StringContent(lastModifiedUtc.ToString("o")), "lastModifiedUtc");
 			formData.Add(new StringContent(serverGroupId.ToString()), "groupId");
-			formData.Add(new StringContent(groupKey), "groupKeyPlaintext");
+			formData.Add(new StringContent(groupKey!), "groupKeyPlaintext");
 
-			var fileStream = File.OpenRead(filePath);
+			using var fileStream = File.OpenRead(filePath);
 			var fileContent = new StreamContent(fileStream);
 			fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
 
@@ -204,11 +215,14 @@ namespace FloatySyncClient
 					File.Move(filePath, backup, overwrite: true);
 
 					await DownloadFileServer(serverGroupId, groupKey, relativePath, filePath, serverUrl);
-					Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
 					using var db = new SyncDbContext();
-					var row = db.Files.First(f => f.GroupId == serverGroupId.ToString()
+					var row = db.Files!.FirstOrDefault(f => f.GroupId == serverGroupId.ToString()
 											   && f.RelativePath == relativePath);
+
+					if (row == null)
+						return;
+
 					row.LastModifiedUtc = DateTime.UtcNow;
 					row.Checksum = Helpers.ComputeFileChecksum(filePath);
 					row.StoredPathOnClient = filePath;
@@ -230,8 +244,8 @@ namespace FloatySyncClient
 			if (File.Exists(fullPath)) return false;
 
 			using var db = new SyncDbContext();
-			var meta = db.Files
-						 .FirstOrDefault(f => f.StoredPathOnClient == fullPath &&
+			var meta = db.Files!
+						 .FirstOrDefault(f => string.Equals(f.StoredPathOnClient, Path.GetFullPath(fullPath), StringComparison.OrdinalIgnoreCase) &&
 											  f.GroupId == serverGroupId.ToString());
 
 			if (meta != null) return meta.IsDirectory;
@@ -239,7 +253,7 @@ namespace FloatySyncClient
 			return false;
 		}
 
-		internal static async Task CreateDirectoryOnServer(string fullPath, int serverGroupId, string groupKey, string relativePath, string serverUrl)
+		internal static async Task CreateDirectoryOnServer(int serverGroupId, string groupKey, string relativePath, string serverUrl)
 		{
 			HttpClient httpClient = new HttpClient();
 
@@ -308,11 +322,9 @@ namespace FloatySyncClient
 
 		public static async Task<bool> TryCreateDir(PendingChange p, string localFolder, int serverGroupId, string groupKey, string serverUrl)
 		{
-			var path = Path.Combine(localFolder, PathNorm.ToDisk(p.RelativePath));
-
 			try
 			{
-				await CreateDirectoryOnServer(path, serverGroupId, groupKey, p.RelativePath, serverUrl);
+				await CreateDirectoryOnServer(serverGroupId, groupKey, p.RelativePath, serverUrl);
 				return true;
 			}
 			catch

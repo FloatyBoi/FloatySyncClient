@@ -12,9 +12,7 @@ namespace FloatySyncClient
 {
 	internal class Program
 	{
-		public static bool isRunningSync = false;
-
-		static ClientConfig config = null;
+		static ClientConfig? config;
 		static async Task Main(string[] args)
 		{
 			var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
@@ -46,7 +44,7 @@ namespace FloatySyncClient
 			{
 				config = JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(configPath));
 
-				if (config.ServerUrl != null)
+				if (config != null && config.ServerUrl != null)
 					Console.WriteLine("Succesfully loaded config");
 				else
 				{
@@ -65,7 +63,7 @@ namespace FloatySyncClient
 
 			using var db = new SyncDbContext();
 			db.Database.EnsureCreated();
-			var allGroups = db.Groups.ToList();
+			var allGroups = db.Groups!.ToList();
 
 			List<GroupFileWatcher> watchers = new List<GroupFileWatcher>();
 
@@ -86,23 +84,23 @@ namespace FloatySyncClient
 
 			_ = Task.Run(async () =>
 			{
-				try
+
+				while (true)
 				{
-					while (true)
+					try
 					{
 						foreach (var wg in watchers)
 						{
-							isRunningSync = true;
 							await wg.FlushQueue();
 							await wg.RunFullSync();
-							isRunningSync = false;
 						}
 						await Task.Delay(TimeSpan.FromMinutes(1));
 					}
-				}
-				catch (Exception ex)
-				{
-					Log.Error(ex, "Error inside background sync loop");
+					catch (Exception ex)
+					{
+						Log.Error(ex, "Error inside background sync loop");
+						await Task.Delay(TimeSpan.FromMinutes(1));
+					}
 				}
 			});
 
@@ -131,12 +129,12 @@ namespace FloatySyncClient
 						var group = new Group
 						{
 							IdOnServer = serverGroupId,
-							Name = groupName,
-							Key = groupKey,
-							LocalFolder = localPath,
+							Name = groupName!,
+							Key = groupKey!,
+							LocalFolder = localPath!,
 							LastSyncUtc = DateTime.MinValue
 						};
-						db.Groups.Add(group);
+						db.Groups!.Add(group);
 						db.SaveChanges();
 
 						await ForceUploadAll(localPath, serverGroupId, groupKey);
@@ -171,18 +169,18 @@ namespace FloatySyncClient
 						{
 							IdOnServer = serverGroupId,
 							Name = groupName,
-							Key = groupKey,
-							LocalFolder = localPath,
+							Key = groupKey!,
+							LocalFolder = localPath!,
 							LastSyncUtc = DateTime.MinValue
 						};
-						db.Groups.Add(group);
+						db.Groups!.Add(group);
 						db.SaveChanges();
 
 						await ForceDownloadAll(localPath, serverGroupId, groupKey);
 
 						var watcher = new GroupFileWatcher(
 							group.IdOnServer,
-							group.Key,
+							group.Key!,
 							group.LocalFolder,
 							config.ServerUrl);
 
@@ -210,7 +208,7 @@ namespace FloatySyncClient
 			DateTime lastSync = DateTime.MinValue;
 
 			string lastSyncParam = Uri.EscapeDataString(lastSync.ToString("O"));
-			string url = $"{config.ServerUrl}/api/files/changes?groupId={groupId}&groupKeyPlaintext={groupKey}&lastSyncUtc={lastSyncParam}";
+			string url = $"{config!.ServerUrl}/api/files/changes?groupId={groupId}&groupKeyPlaintext={groupKey}&lastSyncUtc={lastSyncParam}";
 
 			var response = await client.GetAsync(url);
 			response.EnsureSuccessStatusCode();
@@ -232,21 +230,21 @@ namespace FloatySyncClient
 					continue;
 				}
 
-				var localPath = Path.Combine(localFolder, PathNorm.ToDisk(serverFile.RelativePath));
+				var localPath = Path.Combine(localFolder!, PathNorm.ToDisk(serverFile.RelativePath!));
 				Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 				if (!serverFile.IsDirectory)
-					await Helpers.DownloadFileServer(groupId, groupKey, serverFile.RelativePath, localPath, config.ServerUrl);
+					await Helpers.DownloadFileServer(groupId, groupKey, serverFile.RelativePath!, localPath, config.ServerUrl!);
 
-				var existing = db.Files
+				var existing = db.Files!
 					.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
 									  && f.GroupId == groupId.ToString());
 
 				if (existing == null)
 				{
-					db.Files.Add(new FileMetadata
+					db.Files!.Add(new FileMetadata
 					{
-						RelativePath = serverFile.RelativePath,
+						RelativePath = serverFile.RelativePath!,
 						LastModifiedUtc = serverFile.LastModifiedUtc,
 						GroupId = groupId.ToString(),
 						StoredPathOnClient = localPath,
@@ -271,18 +269,18 @@ namespace FloatySyncClient
 		{
 			HttpClient client = new HttpClient();
 
-			var allFiles = Directory.GetFiles(localPath, "*", SearchOption.AllDirectories);
+			var allFiles = Directory.GetFiles(localPath!, "*", SearchOption.AllDirectories);
 
-			var allDirectories = Directory.GetDirectories(localPath, "*", SearchOption.AllDirectories);
+			var allDirectories = Directory.GetDirectories(localPath!, "*", SearchOption.AllDirectories);
 
 			using var db = new SyncDbContext();
 
 			foreach (var filePath in allFiles)
 			{
-				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, filePath));
-				await Helpers.UploadFileToServer(filePath, DateTime.UtcNow, serverGroupId, groupKey, relativePath, config.ServerUrl);
+				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath!, filePath));
+				await Helpers.UploadFileToServer(filePath, DateTime.UtcNow, serverGroupId, groupKey, relativePath, config!.ServerUrl!);
 
-				var existing = db.Files
+				var existing = db.Files!
 					.FirstOrDefault(f => f.RelativePath == relativePath &&
 										 f.GroupId == serverGroupId.ToString());
 
@@ -297,7 +295,7 @@ namespace FloatySyncClient
 						StoredPathOnClient = filePath,
 						IsDirectory = Helpers.WasDirectory(filePath, serverGroupId)
 					};
-					db.Files.Add(newRecord);
+					db.Files!.Add(newRecord);
 				}
 				else
 				{
@@ -310,10 +308,10 @@ namespace FloatySyncClient
 
 			foreach (var directory in allDirectories)
 			{
-				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath, directory));
-				await Helpers.CreateDirectoryOnServer(directory, serverGroupId, groupKey, relativePath, config.ServerUrl);
+				string relativePath = PathNorm.Normalize(Path.GetRelativePath(localPath!, directory));
+				await Helpers.CreateDirectoryOnServer(serverGroupId, groupKey!, relativePath, config!.ServerUrl!);
 
-				var existing = db.Files
+				var existing = db.Files!
 					.FirstOrDefault(f => f.RelativePath == relativePath &&
 										 f.GroupId == serverGroupId.ToString());
 				if (existing == null)
@@ -328,7 +326,7 @@ namespace FloatySyncClient
 						IsDirectory = Helpers.WasDirectory(directory, serverGroupId)
 					};
 
-					db.Files.Add(newRecord);
+					db.Files!.Add(newRecord);
 				}
 				else
 				{

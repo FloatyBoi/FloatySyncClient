@@ -19,6 +19,7 @@ namespace FloatySyncClient
 		private readonly string _localFolder;
 		private readonly HttpClient _httpClient;
 
+		public bool _suppressEvents = false;
 
 		private FileSystemWatcher? _watcher;
 
@@ -54,9 +55,10 @@ namespace FloatySyncClient
 		//TODO: What happens on conflict?
 		private async void OnCreated(object sender, FileSystemEventArgs e)
 		{
+			if (_suppressEvents) return;
 
 			var _syncDbContext = new SyncDbContext();
-			await Task.Delay(500);
+			await WaitForFileClose(e.FullPath);
 
 			if (File.Exists(e.FullPath))
 			{
@@ -68,7 +70,7 @@ namespace FloatySyncClient
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.GroupId = _serverGroupId.ToString();
 
-				_syncDbContext.Files.Add(fileMetadata);
+				_syncDbContext.Files!.Add(fileMetadata);
 				_syncDbContext.SaveChanges();
 
 				try
@@ -91,12 +93,12 @@ namespace FloatySyncClient
 				directoryMetadata.GroupId = _serverGroupId.ToString();
 				directoryMetadata.IsDirectory = true;
 
-				_syncDbContext.Files.Add(directoryMetadata);
+				_syncDbContext.Files!.Add(directoryMetadata);
 				_syncDbContext.SaveChanges();
 
 				try
 				{
-					await Helpers.CreateDirectoryOnServer(e.FullPath, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+					await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
 				}
 				catch (HttpRequestException)
 				{
@@ -107,17 +109,19 @@ namespace FloatySyncClient
 		}
 		private async void OnChanged(object sender, FileSystemEventArgs e)
 		{
-			if (Program.isRunningSync)
-				return;
+			if (_suppressEvents) return;
 
 			var _syncDbContext = new SyncDbContext();
-			await Task.Delay(500);
+			await WaitForFileClose(e.FullPath);
 
 			if (File.Exists(e.FullPath))
 			{
-				var fileMetadata = _syncDbContext.Files
-					.First(f => f.RelativePath == RelFromFull(e.FullPath)
+				var fileMetadata = _syncDbContext.Files!
+					.FirstOrDefault(f => f.RelativePath == RelFromFull(e.FullPath)
 									  && f.GroupId == _serverGroupId.ToString());
+
+				if (fileMetadata == null)
+					return;
 
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
@@ -140,17 +144,19 @@ namespace FloatySyncClient
 		}
 		private async void OnRenamed(object sender, RenamedEventArgs e)
 		{
-			if (Program.isRunningSync)
-				return;
+			if (_suppressEvents) return;
 
 			var _syncDbContext = new SyncDbContext();
-			await Task.Delay(500);
+			await WaitForFileClose(e.FullPath);
 
 			if (File.Exists(e.FullPath))
 			{
-				var fileMetadata = _syncDbContext.Files
-					.First(f => f.RelativePath == PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath))
+				var fileMetadata = _syncDbContext.Files!
+					.FirstOrDefault(f => f.RelativePath == PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath))
 									  && f.GroupId == _serverGroupId.ToString());
+
+				if (fileMetadata == null)
+					return;
 
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
@@ -221,7 +227,7 @@ namespace FloatySyncClient
 			string newPrefix = newRel + "/";
 
 			using var db = new SyncDbContext();
-			var affected = db.Files.Where(f => f.RelativePath.StartsWith(oldPrefix) &&
+			var affected = db.Files!.Where(f => f.RelativePath.StartsWith(oldPrefix) &&
 												f.GroupId == _serverGroupId.ToString())
 												.ToList();
 			foreach (var meta in affected)
@@ -233,7 +239,7 @@ namespace FloatySyncClient
 				{
 					var newDiskPath = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
 					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
-					File.Move(meta.StoredPathOnClient, newPath, overwrite: true);
+					File.Move(meta.StoredPathOnClient, newDiskPath, overwrite: true);
 					meta.StoredPathOnClient = newDiskPath;
 				}
 
@@ -246,13 +252,12 @@ namespace FloatySyncClient
 
 		private async void OnDeleted(object sender, FileSystemEventArgs e)
 		{
-			if (Program.isRunningSync)
-				return;
+			if (_suppressEvents) return;
 
 			var _syncDbContext = new SyncDbContext();
 			await Task.Delay(500);
 
-			var fileMetadata = _syncDbContext.Files
+			var fileMetadata = _syncDbContext.Files!
 				.FirstOrDefault(f => f.RelativePath == RelFromFull(e.FullPath)
 								  && f.GroupId == _serverGroupId.ToString());
 
@@ -313,15 +318,17 @@ namespace FloatySyncClient
 
 			string prefix = rel + "/";
 			using var db = new SyncDbContext();
-			var toDelete = db.Files.Where(f => f.RelativePath.StartsWith(prefix)
+			var toDelete = db.Files!.Where(f => f.RelativePath.StartsWith(prefix)
 											&& f.GroupId == _serverGroupId.ToString())
 				.ToList();
 
-			db.Files.RemoveRange(toDelete);
+			db.Files!.RemoveRange(toDelete);
 			db.SaveChanges();
 
+			_suppressEvents = true;
 			if (Directory.Exists(fullPath))
 				Directory.Delete(fullPath, true);
+			_suppressEvents = false;
 		}
 
 		public async Task RunFullSync()
@@ -336,7 +343,7 @@ namespace FloatySyncClient
 
 			await PullServerChanges(lastSyncCopy);
 
-			var groupRecord = _syncDbContext.Groups.FirstOrDefault(g => g.IdOnServer == _serverGroupId);
+			var groupRecord = _syncDbContext.Groups!.FirstOrDefault(g => g.IdOnServer == _serverGroupId);
 
 			DateTime newMaxSyncTime = CalculateNewMaxSyncTime();
 
@@ -360,7 +367,7 @@ namespace FloatySyncClient
 		private async Task PushLocalChanges(DateTime lastSyncUtc)
 		{
 			var _syncDbContext = new SyncDbContext();
-			var changedLocalFiles = _syncDbContext.Files
+			var changedLocalFiles = _syncDbContext.Files!
 				.Where(f => f.GroupId == _serverGroupId.ToString() && f.LastModifiedUtc > lastSyncUtc)
 				.ToList();
 
@@ -369,15 +376,15 @@ namespace FloatySyncClient
 				Console.WriteLine("[Sync] No local changes to push.");
 				return;
 			}
-
+			_suppressEvents = true;
 			foreach (var localFile in changedLocalFiles)
 			{
-				string fullPath = localFile.StoredPathOnClient;
+				string fullPath = localFile.StoredPathOnClient!;
 
 				if (localFile.IsDirectory && Directory.Exists(fullPath))
 				{
 					Console.WriteLine($"[Sync] Creating directory on server: {localFile.RelativePath}");
-					await Helpers.CreateDirectoryOnServer(fullPath, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
+					await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
 					continue;
 				}
 
@@ -392,6 +399,7 @@ namespace FloatySyncClient
 				await Helpers.UploadFileToServer(fullPath, localFile.LastModifiedUtc, _serverGroupId, _groupKey, localFile.RelativePath, _serverUrl);
 
 			}
+			_suppressEvents = false;
 		}
 
 		private async Task PullServerChanges(DateTime lastSyncUtc)
@@ -416,12 +424,13 @@ namespace FloatySyncClient
 				Console.WriteLine("[Sync] No server changes to pull.");
 				return;
 			}
-
+			_suppressEvents = true;
 			foreach (var serverFile in changedFiles)
 			{
 				if (serverFile.IsDeleted)
 				{
-					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath));
+					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath!));
+					_suppressEvents = true;
 					if (File.Exists(localPath))
 					{
 						File.Delete(localPath);
@@ -432,34 +441,35 @@ namespace FloatySyncClient
 						Directory.Delete(localPath, true);
 						Console.WriteLine($"[Sync] Pulled server directory delete: {serverFile.RelativePath}");
 					}
+					_suppressEvents = false;
 					// Remove from local DB
-					var existing = _syncDbContext.Files
+					var existing = _syncDbContext.Files!
 						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
 										  && f.GroupId == _serverGroupId.ToString());
 					if (existing != null)
 					{
-						_syncDbContext.Files.Remove(existing);
+						_syncDbContext.Files!.Remove(existing);
 					}
 				}
 				else
 				{
 					// New or updated file
-					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath));
+					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath!));
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 					if (!serverFile.IsDirectory)
 					{
 						// Download
-						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, serverFile.RelativePath, localPath, _serverUrl);
+						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, serverFile.RelativePath!, localPath, _serverUrl);
 					}
-					var existing = _syncDbContext.Files
+					var existing = _syncDbContext.Files!
 						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
 										  && f.GroupId == _serverGroupId.ToString());
 					if (existing == null)
 					{
-						_syncDbContext.Files.Add(new FileMetadata
+						_syncDbContext.Files!.Add(new FileMetadata
 						{
-							RelativePath = serverFile.RelativePath,
+							RelativePath = serverFile.RelativePath!,
 							LastModifiedUtc = serverFile.LastModifiedUtc,
 							GroupId = _serverGroupId.ToString(),
 							StoredPathOnClient = localPath
@@ -470,11 +480,11 @@ namespace FloatySyncClient
 						existing.LastModifiedUtc = serverFile.LastModifiedUtc;
 						existing.StoredPathOnClient = localPath;
 					}
-
+					_suppressEvents = false;
 					Console.WriteLine($"[Sync] Pulled file from server: {serverFile.RelativePath}");
 				}
 			}
-
+			_suppressEvents = false;
 			_syncDbContext.SaveChanges();
 		}
 
@@ -495,7 +505,7 @@ namespace FloatySyncClient
 			using var db = new SyncDbContext();
 
 			// What database thinks exists
-			var dbRows = db.Files
+			var dbRows = db.Files!
 						   .Where(f => f.GroupId == _serverGroupId.ToString())
 						   .ToDictionary(f => f.RelativePath, f => f);
 
@@ -508,7 +518,7 @@ namespace FloatySyncClient
 				// New file / directory
 				if (!dbRows.TryGetValue(rel, out var row))
 				{
-					db.Files.Add(new FileMetadata
+					db.Files!.Add(new FileMetadata
 					{
 						RelativePath = rel,
 						IsDirectory = isDir,
@@ -561,9 +571,11 @@ namespace FloatySyncClient
 		public async Task FlushQueue()
 		{
 			using var db = new SyncDbContext();
-			var batch = db.PendingChanges
+			var batch = db.PendingChanges!
 						  .Where(p => p.GroupId == _serverGroupId)
 						  .Take(20).ToList();
+
+			_suppressEvents = true;
 
 			foreach (var p in batch)
 			{
@@ -577,8 +589,9 @@ namespace FloatySyncClient
 					"RenameDir" => await TryHandleDirRename(p),
 					_ => true
 				};
-				if (done) db.PendingChanges.Remove(p);
+				if (done) db.PendingChanges!.Remove(p);
 			}
+			_suppressEvents = false;
 			db.SaveChanges();
 		}
 
@@ -586,13 +599,13 @@ namespace FloatySyncClient
 		{
 			using var db = new SyncDbContext();
 
-			var existing = db.PendingChanges
+			var existing = db.PendingChanges!
 							 .FirstOrDefault(p => p.GroupId == _serverGroupId &&
 												  p.RelativePath == rel);
 
 			if (existing == null)
 			{
-				db.PendingChanges.Add(new PendingChange
+				db.PendingChanges!.Add(new PendingChange
 				{
 					GroupId = _serverGroupId,
 					RelativePath = rel,
@@ -626,6 +639,7 @@ namespace FloatySyncClient
 						if (existing.ChangeType is not ("Move" or "RenameDir"))
 							existing.ChangeType = "Upload";
 
+						existing.Checksum = checksum;
 						existing.QueuedUtc = DateTime.UtcNow;
 						break;
 
@@ -633,6 +647,7 @@ namespace FloatySyncClient
 						// Keep CreateDir unless a Delete/DeleteDir already queued
 						if (existing.ChangeType.StartsWith("Delete", StringComparison.Ordinal) == false)
 							existing.ChangeType = "CreateDir";
+						existing.Checksum = checksum;
 						break;
 				}
 			}
@@ -643,7 +658,7 @@ namespace FloatySyncClient
 		private DateTime CalculateNewMaxSyncTime()
 		{
 			var _syncDbContext = new SyncDbContext();
-			DateTime maxLocal = _syncDbContext.Files
+			DateTime maxLocal = _syncDbContext.Files!
 				.Where(f => f.GroupId == _serverGroupId.ToString())
 				.Select(f => f.LastModifiedUtc)
 				.ToList()
@@ -663,6 +678,23 @@ namespace FloatySyncClient
 			catch
 			{
 				return false;
+			}
+		}
+
+		private async Task WaitForFileClose(string path)
+		{
+			//Wait for up to 2 seconds
+			for (int i = 0; i < 20; i++)
+			{
+				try
+				{
+					File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None).Dispose();
+					return;
+				}
+				catch (IOException)
+				{
+					await Task.Delay(100);
+				}
 			}
 		}
 	}

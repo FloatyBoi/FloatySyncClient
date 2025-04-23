@@ -18,11 +18,12 @@ namespace FloatySyncClient
 		protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 		{
 			optionsBuilder.UseSqlite($"Data Source={DbPath}");
+			optionsBuilder.AddInterceptors(new BusyInterceptor());
 		}
 
-		public DbSet<Group> Groups { get; set; }
-		public DbSet<FileMetadata> Files { get; set; }
-		public DbSet<PendingChange> PendingChanges { get; set; }
+		public DbSet<Group>? Groups { get; set; }
+		public DbSet<FileMetadata>? Files { get; set; }
+		public DbSet<PendingChange>? PendingChanges { get; set; }
 
 		public string DbPath { get; }
 	}
