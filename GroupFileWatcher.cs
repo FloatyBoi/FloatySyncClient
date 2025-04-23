@@ -163,6 +163,37 @@ namespace FloatySyncClient
 				fileMetadata.StoredPathOnClient = e.FullPath;
 				fileMetadata.RelativePath = PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath));
 
+				var newDirRel = PathNorm.Normalize(
+					Path.GetDirectoryName(
+						Path.GetRelativePath(_localFolder, e.FullPath)) ?? "");
+				if (newDirRel.Length > 0)
+				{
+					var dirRow = _syncDbContext.Files!
+								.FirstOrDefault(f => f.RelativePath == newDirRel &&
+													 f.GroupId == _serverGroupId.ToString());
+					if (dirRow == null)
+					{
+						_syncDbContext.Files!.Add(new FileMetadata
+						{
+							RelativePath = newDirRel,
+							LastModifiedUtc = DateTime.UtcNow,
+							GroupId = _serverGroupId.ToString(),
+							StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(newDirRel)),
+							IsDirectory = true,
+							Checksum = null
+						});
+
+						try
+						{
+							await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, newDirRel, _serverUrl);
+						}
+						catch (HttpRequestException)
+						{
+							QueueChange("CreateDir", newDirRel, checksum: null);
+						}
+					}
+				}
+
 				_syncDbContext.SaveChanges();
 
 				try
@@ -227,6 +258,29 @@ namespace FloatySyncClient
 			string newPrefix = newRel + "/";
 
 			using var db = new SyncDbContext();
+
+			var rootDir = db.Files!
+				.FirstOrDefault(f => f.RelativePath == oldRel &&
+									 f.GroupId == _serverGroupId.ToString());
+			if (rootDir == null)
+			{
+				db.Files!.Add(new FileMetadata
+				{
+					RelativePath = newRel,
+					LastModifiedUtc = DateTime.UtcNow,
+					GroupId = _serverGroupId.ToString(),
+					StoredPathOnClient = fullPath,
+					IsDirectory = true,
+					Checksum = null
+				});
+			}
+			else
+			{
+				rootDir.RelativePath = newRel;
+				rootDir.StoredPathOnClient = fullPath;
+				rootDir.LastModifiedUtc = DateTime.UtcNow;
+			}
+
 			var affected = db.Files!.Where(f => f.RelativePath.StartsWith(oldPrefix) &&
 												f.GroupId == _serverGroupId.ToString())
 												.ToList();
@@ -238,7 +292,32 @@ namespace FloatySyncClient
 				if (!meta.IsDirectory && File.Exists(meta.StoredPathOnClient))
 				{
 					var newDiskPath = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
+
+					var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(oldRel)
+																	&& f.GroupId == _serverGroupId.ToString());
+
+					if (existingDirectory == null)
+					{
+						db.Files!.Add(new FileMetadata
+						{
+							RelativePath = Path.GetDirectoryName(newRel)!,
+							LastModifiedUtc = DateTime.UtcNow,
+							GroupId = _serverGroupId.ToString(),
+							StoredPathOnClient = newPath,
+							Checksum = null,
+							IsDirectory = true
+						});
+
+						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, Path.GetDirectoryName(newRel)!, _serverUrl);
+					}
+					else
+					{
+						existingDirectory.StoredPathOnClient = newPath;
+						existingDirectory.RelativePath = newRel;
+						existingDirectory.LastModifiedUtc = DateTime.UtcNow;
+					}
 					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
+
 					File.Move(meta.StoredPathOnClient, newDiskPath, overwrite: true);
 					meta.StoredPathOnClient = newDiskPath;
 				}
@@ -323,6 +402,13 @@ namespace FloatySyncClient
 				.ToList();
 
 			db.Files!.RemoveRange(toDelete);
+
+			var root = db.Files.FirstOrDefault(f => f.RelativePath == rel
+												&& f.GroupId == _serverGroupId.ToString());
+
+			if (root != null)
+				db.Files!.Remove(root);
+
 			db.SaveChanges();
 
 			_suppressEvents = true;
@@ -450,11 +536,38 @@ namespace FloatySyncClient
 					{
 						_syncDbContext.Files!.Remove(existing);
 					}
+
+					string prefix = serverFile.RelativePath! + "/";
+					var rowsToDelete = _syncDbContext.Files!
+						   .Where(f => (f.RelativePath == serverFile.RelativePath! ||
+					f.RelativePath.StartsWith(prefix)) &&
+					f.GroupId == _serverGroupId.ToString())
+						   .ToList();
+					_syncDbContext.Files!.RemoveRange(rowsToDelete);
 				}
 				else
 				{
 					// New or updated file
 					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath!));
+
+					var existingDirectory = _syncDbContext.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(serverFile.RelativePath)
+																	&& f.GroupId == _serverGroupId.ToString());
+
+					if (existingDirectory == null)
+					{
+						_syncDbContext.Files!.Add(new FileMetadata
+						{
+							RelativePath = Path.GetDirectoryName(serverFile.RelativePath)!,
+							LastModifiedUtc = DateTime.UtcNow,
+							GroupId = _serverGroupId.ToString(),
+							StoredPathOnClient = Path.GetDirectoryName(localPath),
+							Checksum = null,
+							IsDirectory = true
+						});
+
+						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, Path.GetDirectoryName(serverFile.RelativePath)!, url);
+					}
+
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
 					if (!serverFile.IsDirectory)
@@ -472,13 +585,19 @@ namespace FloatySyncClient
 							RelativePath = serverFile.RelativePath!,
 							LastModifiedUtc = serverFile.LastModifiedUtc,
 							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = localPath
+							StoredPathOnClient = localPath,
+							IsDirectory = serverFile.IsDirectory,
+							Checksum = serverFile.IsDirectory ? null : Helpers.ComputeFileChecksum(localPath),
 						});
 					}
 					else
 					{
 						existing.LastModifiedUtc = serverFile.LastModifiedUtc;
 						existing.StoredPathOnClient = localPath;
+						existing.IsDirectory = serverFile.IsDirectory;
+
+						if (!serverFile.IsDirectory)
+							existing.Checksum = Helpers.ComputeFileChecksum(localPath);
 					}
 					_suppressEvents = false;
 					Console.WriteLine($"[Sync] Pulled file from server: {serverFile.RelativePath}");

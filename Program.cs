@@ -240,7 +240,28 @@ namespace FloatySyncClient
 				}
 
 				var localPath = Path.Combine(localFolder!, PathNorm.ToDisk(serverFile.RelativePath!));
-				Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+
+				var directoryName = Path.GetDirectoryName(localPath);
+
+				Directory.CreateDirectory(directoryName!);
+
+				var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(serverFile.RelativePath)
+																	&& f.GroupId == groupId.ToString());
+
+				if (existingDirectory == null)
+				{
+					db.Files!.Add(new FileMetadata
+					{
+						RelativePath = Path.GetDirectoryName(serverFile.RelativePath)!,
+						LastModifiedUtc = DateTime.UtcNow,
+						GroupId = groupId.ToString(),
+						StoredPathOnClient = directoryName,
+						Checksum = null,
+						IsDirectory = true
+					});
+
+					await Helpers.CreateDirectoryOnServer(groupId, groupKey, Path.GetDirectoryName(serverFile.RelativePath), url);
+				}
 
 				if (!serverFile.IsDirectory)
 					await Helpers.DownloadFileServer(groupId, groupKey, serverFile.RelativePath!, localPath, config.ServerUrl!);
