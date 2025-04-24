@@ -67,10 +67,9 @@ namespace FloatySyncClient
 			if (config.ServerUrl.EndsWith('/'))
 				config.ServerUrl = config.ServerUrl.Remove(config.ServerUrl.LastIndexOf('/'));
 
-			DatabaseCleanup();
-
 			using var db = new SyncDbContext();
 			db.Database.EnsureCreated();
+			DatabaseCleanup();
 			var allGroups = db.Groups!.ToList();
 
 			List<GroupFileWatcher> watchers = new List<GroupFileWatcher>();
