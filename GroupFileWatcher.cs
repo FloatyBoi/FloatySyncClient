@@ -251,8 +251,8 @@ namespace FloatySyncClient
 			};
 			await _httpClient.PostAsJsonAsync($"{_serverUrl}/api/directories/rename", payload);
 
-			string oldPrefix = oldRel + "/";
-			string newPrefix = newRel + "/";
+			string oldPrefix = oldRel + '/';
+			string newPrefix = newRel + '/';
 
 			using var db = new SyncDbContext();
 			var rows = db.Files!
@@ -261,13 +261,14 @@ namespace FloatySyncClient
 									 f.RelativePath.StartsWith(oldPrefix)))
 						 .ToList();
 
-			EnsureDirectoryRow(Path.GetDirectoryName(newRel));
+			EnsureDirectoryRow(PathNorm.Normalize(Path.GetDirectoryName(newRel)));
 
 			foreach (var m in rows)
 			{
-				string newPath = (m.RelativePath == oldRel)
-								 ? newRel
-								 : newPrefix + m.RelativePath.Substring(oldPrefix.Length);
+				string newPath =
+					(m.RelativePath == oldRel)
+					? newRel
+					: newPrefix + m.RelativePath.Substring(oldPrefix.Length);
 
 				m.RelativePath = newPath;
 				m.StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
@@ -281,6 +282,8 @@ namespace FloatySyncClient
 			{
 				if (string.IsNullOrEmpty(dirRel) || dirRel == ".") return;
 
+				dirRel = PathNorm.Normalize(dirRel);
+
 				var existing = db.Files!.FirstOrDefault(f => f.GroupId == _serverGroupId.ToString()
 														  && f.RelativePath == dirRel);
 				if (existing != null) return;
@@ -291,7 +294,8 @@ namespace FloatySyncClient
 					StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(dirRel)),
 					LastModifiedUtc = DateTime.UtcNow,
 					GroupId = _serverGroupId.ToString(),
-					IsDirectory = true
+					IsDirectory = true,
+					Checksum = null
 				});
 
 				_ = Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, dirRel, _serverUrl)
