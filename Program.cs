@@ -402,7 +402,7 @@ namespace FloatySyncClient
 		{
 			using var db = new SyncDbContext();
 
-			Console.WriteLine("[Cleanup] sweep started…");
+			Console.WriteLine("[Cleanup] Sweep started…");
 
 			var dupGroups = db.Files!
 				.Select(f => new
