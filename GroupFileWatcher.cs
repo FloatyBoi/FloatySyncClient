@@ -350,7 +350,15 @@ namespace FloatySyncClient
 				}
 			}
 
-			_syncDbContext.SaveChanges();
+			try
+			{
+				_syncDbContext.SaveChanges();
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				//Rows already gone
+				_syncDbContext.ChangeTracker.Clear();
+			}
 		}
 
 		private async Task<bool> TryHandleDirDelete(PendingChange p)
