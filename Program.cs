@@ -229,7 +229,7 @@ namespace FloatySyncClient
 			DateTime lastSync = DateTime.MinValue;
 
 			string lastSyncParam = Uri.EscapeDataString(lastSync.ToString("O"));
-			string url = $"{config!.ServerUrl}/api/files/changes?groupId={groupId}&groupKeyPlaintext={groupKey}&lastSyncUtc={lastSyncParam}";
+			string url = $"{config!.ServerUrl}/api/files/changes?groupId={groupId}&groupKeyPlaintext={Uri.EscapeDataString(groupKey!)}&lastSyncUtc={lastSyncParam}";
 
 			var response = await client.GetAsync(url);
 			response.EnsureSuccessStatusCode();
@@ -309,8 +309,6 @@ namespace FloatySyncClient
 
 		private static async Task ForceUploadAll(string? localPath, int serverGroupId, string? groupKey)
 		{
-			HttpClient client = new HttpClient();
-
 			var allFiles = Directory.GetFiles(localPath!, "*", SearchOption.AllDirectories);
 
 			var allDirectories = Directory.GetDirectories(localPath!, "*", SearchOption.AllDirectories);

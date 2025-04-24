@@ -495,7 +495,7 @@ namespace FloatySyncClient
 
 			string lastSyncParam = Uri.EscapeDataString(lastSyncUtc.ToString("O"));
 			string url = $"{_serverUrl}/api/files/changes?groupId={_serverGroupId}" +
-						 $"&groupKeyPlaintext={_groupKey}" +
+						 $"&groupKeyPlaintext={Uri.EscapeDataString(_groupKey)}" +
 						 $"&lastSyncUtc={lastSyncParam}";
 
 			var response = await _httpClient.GetAsync(url);
