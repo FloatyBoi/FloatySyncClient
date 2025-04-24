@@ -261,7 +261,7 @@ namespace FloatySyncClient
 									 f.RelativePath.StartsWith(oldPrefix)))
 						 .ToList();
 
-			EnsureDirectoryRow(PathNorm.Normalize(Path.GetDirectoryName(newRel)));
+			EnsureDirectoryRow(PathNorm.Normalize(Path.GetDirectoryName(PathNorm.ToDisk(newRel))));
 
 			foreach (var m in rows)
 			{
@@ -290,8 +290,8 @@ namespace FloatySyncClient
 
 				db.Files!.Add(new FileMetadata
 				{
-					RelativePath = dirRel,
-					StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(dirRel)),
+					RelativePath = PathNorm.Normalize(dirRel),
+					StoredPathOnClient = Path.Combine(_localFolder, PathNorm.Normalize(dirRel)),
 					LastModifiedUtc = DateTime.UtcNow,
 					GroupId = _serverGroupId.ToString(),
 					IsDirectory = true,
@@ -518,7 +518,7 @@ namespace FloatySyncClient
 					// New or updated file
 					string localPath = Path.Combine(_localFolder, PathNorm.ToDisk(serverFile.RelativePath!));
 
-					var existingDirectory = _syncDbContext.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(serverFile.RelativePath)
+					var existingDirectory = _syncDbContext.Files!.FirstOrDefault(f => f.RelativePath == PathNorm.Normalize(Path.GetDirectoryName(serverFile.RelativePath) ?? "")
 																	&& f.GroupId == _serverGroupId.ToString());
 
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
@@ -527,33 +527,33 @@ namespace FloatySyncClient
 					{
 						_syncDbContext.Files!.Add(new FileMetadata
 						{
-							RelativePath = Path.GetDirectoryName(serverFile.RelativePath)!,
+							RelativePath = PathNorm.Normalize(Path.GetDirectoryName(PathNorm.ToDisk(serverFile.RelativePath))),
 							LastModifiedUtc = DateTime.UtcNow,
 							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = Path.GetDirectoryName(localPath),
+							StoredPathOnClient = PathNorm.Normalize(Path.GetDirectoryName(PathNorm.ToDisk(localPath))),
 							Checksum = null,
 							IsDirectory = true
 						});
 
-						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, Path.GetDirectoryName(serverFile.RelativePath)!, url);
+						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, PathNorm.Normalize(Path.GetDirectoryName(serverFile.RelativePath) ?? ""), url);
 					}
 
 					if (!serverFile.IsDirectory)
 					{
 						// Download
-						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, serverFile.RelativePath!, localPath, _serverUrl);
+						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, PathNorm.Normalize(serverFile.RelativePath), localPath, _serverUrl);
 					}
 					var existing = _syncDbContext.Files!
-						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
+						.FirstOrDefault(f => f.RelativePath == PathNorm.Normalize(serverFile.RelativePath)
 										  && f.GroupId == _serverGroupId.ToString());
 					if (existing == null)
 					{
 						_syncDbContext.Files!.Add(new FileMetadata
 						{
-							RelativePath = serverFile.RelativePath!,
+							RelativePath = PathNorm.Normalize(serverFile.RelativePath!),
 							LastModifiedUtc = serverFile.LastModifiedUtc,
 							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = localPath,
+							StoredPathOnClient = PathNorm.Normalize(localPath),
 							IsDirectory = serverFile.IsDirectory,
 							Checksum = serverFile.IsDirectory ? null : Helpers.ComputeFileChecksum(localPath),
 						});
@@ -561,7 +561,7 @@ namespace FloatySyncClient
 					else
 					{
 						existing.LastModifiedUtc = serverFile.LastModifiedUtc;
-						existing.StoredPathOnClient = localPath;
+						existing.StoredPathOnClient = PathNorm.Normalize(localPath);
 						existing.IsDirectory = serverFile.IsDirectory;
 
 						if (!serverFile.IsDirectory)
