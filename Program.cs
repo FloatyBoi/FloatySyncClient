@@ -423,10 +423,12 @@ namespace FloatySyncClient
 			foreach (var g in dupGroups)
 			{
 				var ordered = g.OrderByDescending(r => r.LastModifiedUtc).ToList();
-				var keeper = ordered[0];
+				var keeper = db.Files!.Find(ordered[0].Id)!;
 
-				foreach (var row in ordered.Skip(1))
+				foreach (var extra in ordered.Skip(1))
 				{
+					var row = db.Files!.Find(extra.Id)!;
+
 					if (!keeper.IsDirectory)
 						keeper.Checksum ??= row.Checksum;
 
@@ -462,7 +464,7 @@ namespace FloatySyncClient
 				db.SaveChanges();
 			}
 
-			Console.WriteLine($"[Cleanup] done: {dupGroups.Count} dup sets fixed, " +
+			Console.WriteLine($"[Cleanup] done: {dupGroups.Count()} dup sets fixed, " +
 							  $"{toRemove.Count} tombstones removed, " +
 							  $"{missing.Count} stale changes dropped.");
 		}
