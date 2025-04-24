@@ -60,6 +60,13 @@ namespace FloatySyncClient
 			var _syncDbContext = new SyncDbContext();
 			await WaitForFileClose(e.FullPath);
 
+			var existing = _syncDbContext.Files!
+					.FirstOrDefault(f => f.RelativePath == RelFromFull(e.FullPath)
+									  && f.GroupId == _serverGroupId.ToString());
+
+			if (existing != null)
+				return; //Duplicate
+
 			if (File.Exists(e.FullPath))
 			{
 
