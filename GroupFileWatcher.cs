@@ -237,97 +237,66 @@ namespace FloatySyncClient
 			}
 		}
 
-		private async Task HandleDirectoryRename(string oldFullPath, string fullPath)
+		private async Task HandleDirectoryRename(string oldFullPath, string newFullPath)
 		{
-			HttpClient client = new HttpClient();
-
 			var oldRel = RelFromFull(oldFullPath);
-			var newRel = RelFromFull(fullPath);
+			var newRel = RelFromFull(newFullPath);
 
-			var body = new
+			var payload = new
 			{
 				GroupId = _serverGroupId,
 				GroupKey = _groupKey,
 				OldPath = oldRel,
-				NewPath = newRel,
+				NewPath = newRel
 			};
-
-			await client.PostAsJsonAsync($"{_serverUrl}/api/directories/rename", body);
+			await _httpClient.PostAsJsonAsync($"{_serverUrl}/api/directories/rename", payload);
 
 			string oldPrefix = oldRel + "/";
 			string newPrefix = newRel + "/";
 
 			using var db = new SyncDbContext();
+			var rows = db.Files!
+						 .Where(f => f.GroupId == _serverGroupId.ToString() &&
+									(f.RelativePath == oldRel ||
+									 f.RelativePath.StartsWith(oldPrefix)))
+						 .ToList();
 
-			var rootDir = db.Files!
-				.FirstOrDefault(f => f.RelativePath == oldRel &&
-									 f.GroupId == _serverGroupId.ToString());
-			if (rootDir == null)
+			EnsureDirectoryRow(Path.GetDirectoryName(newRel));
+
+			foreach (var m in rows)
 			{
-				db.Files!.Add(new FileMetadata
-				{
-					RelativePath = newRel,
-					LastModifiedUtc = DateTime.UtcNow,
-					GroupId = _serverGroupId.ToString(),
-					StoredPathOnClient = fullPath,
-					IsDirectory = true,
-					Checksum = null
-				});
-			}
-			else
-			{
-				rootDir.RelativePath = newRel;
-				rootDir.StoredPathOnClient = fullPath;
-				rootDir.LastModifiedUtc = DateTime.UtcNow;
-			}
+				string newPath = (m.RelativePath == oldRel)
+								 ? newRel
+								 : newPrefix + m.RelativePath.Substring(oldPrefix.Length);
 
-			var affected = db.Files!.Where(f => f.RelativePath.StartsWith(oldPrefix) &&
-												f.GroupId == _serverGroupId.ToString())
-												.ToList();
-			foreach (var meta in affected)
-			{
-				string tail = meta.RelativePath.Substring(oldPrefix.Length);
-				string newPath = newPrefix + tail;
-
-				if (!meta.IsDirectory && File.Exists(meta.StoredPathOnClient))
-				{
-					var newDiskPath = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
-
-					var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(newRel)
-																	&& f.GroupId == _serverGroupId.ToString());
-
-					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
-
-					if (Directory.Exists(Path.GetDirectoryName(newDiskPath)) && Path.GetDirectoryName(newDiskPath) != _localFolder && existingDirectory == null)
-					{
-						db.Files!.Add(new FileMetadata
-						{
-							RelativePath = Path.GetDirectoryName(newRel)!,
-							LastModifiedUtc = DateTime.UtcNow,
-							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = newDiskPath,
-							Checksum = null,
-							IsDirectory = true
-						});
-
-						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, Path.GetDirectoryName(newRel)!, _serverUrl);
-					}
-					else
-					{
-						existingDirectory.StoredPathOnClient = newDiskPath;
-						existingDirectory.RelativePath = newRel;
-						existingDirectory.LastModifiedUtc = DateTime.UtcNow;
-					}
-
-					File.Move(meta.StoredPathOnClient, newDiskPath, overwrite: true);
-					meta.StoredPathOnClient = newDiskPath;
-				}
-
-				meta.RelativePath = newRel;
-				meta.LastModifiedUtc = DateTime.UtcNow;
+				m.RelativePath = newPath;
+				m.StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
+				m.LastModifiedUtc = DateTime.UtcNow;
 			}
 
 			db.SaveChanges();
+			return;
+
+			void EnsureDirectoryRow(string? dirRel)
+			{
+				if (string.IsNullOrEmpty(dirRel) || dirRel == ".") return;
+
+				var existing = db.Files!.FirstOrDefault(f => f.GroupId == _serverGroupId.ToString()
+														  && f.RelativePath == dirRel);
+				if (existing != null) return;
+
+				db.Files!.Add(new FileMetadata
+				{
+					RelativePath = dirRel,
+					StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(dirRel)),
+					LastModifiedUtc = DateTime.UtcNow,
+					GroupId = _serverGroupId.ToString(),
+					IsDirectory = true
+				});
+
+				_ = Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, dirRel, _serverUrl)
+						   .ContinueWith(_ => { });
+			}
 		}
 
 		private async void OnDeleted(object sender, FileSystemEventArgs e)
