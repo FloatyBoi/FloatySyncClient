@@ -583,7 +583,13 @@ namespace FloatySyncClient
 							existing.Checksum = Helpers.ComputeFileChecksum(localPath);
 					}
 					_suppressEvents = false;
-					Console.WriteLine($"[Sync] Pulled file from server: {serverFile.RelativePath}");
+					if (serverFile.IsDirectory)
+					{
+						Directory.CreateDirectory(localPath);
+						Console.WriteLine($"[Sync] Pulled directory from server: {serverFile.RelativePath}");
+					}
+					else
+						Console.WriteLine($"[Sync] Pulled file from server: {serverFile.RelativePath}");
 				}
 			}
 			_suppressEvents = false;
