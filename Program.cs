@@ -406,9 +406,19 @@ namespace FloatySyncClient
 			Console.WriteLine("[Cleanup] sweep started…");
 
 			var dupGroups = db.Files!
-				.GroupBy(f => new { f.GroupId, f.RelativePath })
-				.Where(g => g.Count() > 1)
-				.ToList();
+				.Select(f => new
+				{
+					f.Id,
+					f.GroupId,
+					f.RelativePath,
+					f.LastModifiedUtc,
+					f.Checksum,
+					f.IsDirectory,
+					f.IsDeleted
+				})
+				.AsEnumerable()
+				.GroupBy(f => (f.GroupId, f.RelativePath))
+				.Where(g => g.Count() > 1);
 
 			foreach (var g in dupGroups)
 			{
