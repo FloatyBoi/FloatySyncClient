@@ -67,6 +67,8 @@ namespace FloatySyncClient
 			if (config.ServerUrl.EndsWith('/'))
 				config.ServerUrl = config.ServerUrl.Remove(config.ServerUrl.LastIndexOf('/'));
 
+			DatabaseCleanup();
+
 			using var db = new SyncDbContext();
 			db.Database.EnsureCreated();
 			var allGroups = db.Groups!.ToList();
@@ -109,6 +111,23 @@ namespace FloatySyncClient
 					{
 						Log.Error(ex, "Error inside background sync loop");
 						await Task.Delay(TimeSpan.FromMinutes(1));
+					}
+				}
+			});
+
+			_ = Task.Run(async () =>
+			{
+				while (true)
+				{
+					try
+					{
+						await Task.Delay(TimeSpan.FromMinutes(10));
+						DatabaseCleanup();
+					}
+					catch (Exception ex)
+					{
+						Log.Error(ex, "Error inside background cleanup loop");
+						await Task.Delay(TimeSpan.FromMinutes(10));
 					}
 				}
 			});
@@ -379,5 +398,64 @@ namespace FloatySyncClient
 			db.SaveChanges();
 			Console.WriteLine($"Upload completed for group {serverGroupId}");
 		}
+
+		private static void DatabaseCleanup()
+		{
+			using var db = new SyncDbContext();
+
+			Console.WriteLine("[Cleanup] sweep started…");
+
+			var dupGroups = db.Files!
+				.GroupBy(f => new { f.GroupId, f.RelativePath })
+				.Where(g => g.Count() > 1)
+				.ToList();
+
+			foreach (var g in dupGroups)
+			{
+				var ordered = g.OrderByDescending(r => r.LastModifiedUtc).ToList();
+				var keeper = ordered[0];
+
+				foreach (var row in ordered.Skip(1))
+				{
+					if (!keeper.IsDirectory)
+						keeper.Checksum ??= row.Checksum;
+
+					keeper.IsDeleted &= row.IsDeleted;
+					db.Files!.Remove(row);
+				}
+			}
+			db.SaveChanges();
+
+			var toRemove = db.Files!
+				.Where(f => f.IsDeleted)
+				.Join(db.Files!,
+					  d => new { d.GroupId, d.RelativePath },
+					  l => new { l.GroupId, l.RelativePath },
+					  (d, l) => d)
+				.Distinct()
+				.ToList();
+
+			if (toRemove.Count > 0)
+			{
+				db.Files!.RemoveRange(toRemove);
+				db.SaveChanges();
+			}
+
+			var missing = db.PendingChanges!
+				.Where(p => !db.Files!.Any(f => f.GroupId == p.GroupId.ToString() &&
+												f.RelativePath == p.RelativePath))
+				.ToList();
+
+			if (missing.Count > 0)
+			{
+				db.PendingChanges!.RemoveRange(missing);
+				db.SaveChanges();
+			}
+
+			Console.WriteLine($"[Cleanup] done: {dupGroups.Count} dup sets fixed, " +
+							  $"{toRemove.Count} tombstones removed, " +
+							  $"{missing.Count} stale changes dropped.");
+		}
+
 	}
 }
