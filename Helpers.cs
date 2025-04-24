@@ -57,6 +57,8 @@ namespace FloatySyncClient
 		{
 			HttpClient httpClient = new HttpClient();
 
+			relativePath = PathNorm.Normalize(relativePath);
+
 			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
 					$"&checksum={Uri.EscapeDataString(checksum!)}" +
 					$"&groupId={Uri.EscapeDataString(serverGroupId.ToString())}" +
@@ -102,7 +104,7 @@ namespace FloatySyncClient
 						Checksum = ComputeFileChecksum(disk),
 						IsDeleted = false,
 						RelativePath = relativePath,
-						StoredPathOnClient = disk,
+						StoredPathOnClient = PathNorm.Normalize(disk),
 						LastModifiedUtc = DateTime.UtcNow,
 						GroupId = serverGroupId.ToString()
 					});
@@ -183,6 +185,8 @@ namespace FloatySyncClient
 
 			using var formData = new MultipartFormDataContent();
 
+			relativePath = PathNorm.Normalize(relativePath);
+
 			formData.Add(new StringContent(relativePath), "relativePath");
 			formData.Add(new StringContent(lastModifiedUtc.ToString("o")), "lastModifiedUtc");
 			formData.Add(new StringContent(serverGroupId.ToString()), "groupId");
@@ -225,7 +229,7 @@ namespace FloatySyncClient
 
 					row.LastModifiedUtc = DateTime.UtcNow;
 					row.Checksum = Helpers.ComputeFileChecksum(filePath);
-					row.StoredPathOnClient = filePath;
+					row.StoredPathOnClient = PathNorm.Normalize(filePath);
 					db.SaveChanges();
 				}
 				else
@@ -247,8 +251,8 @@ namespace FloatySyncClient
 						 .Where(f => f.GroupId == serverGroupId.ToString())
 						 .AsEnumerable()
 						 .FirstOrDefault(f =>
-							  Path.GetFullPath(f.StoredPathOnClient!)
-								  .Equals(abs, StringComparison.OrdinalIgnoreCase));
+							  PathNorm.Normalize(Path.GetFullPath(f.StoredPathOnClient!))
+								  .Equals(PathNorm.Normalize(abs), StringComparison.OrdinalIgnoreCase));
 
 			if (meta != null) return meta.IsDirectory;
 			return true; // Bad assumption, but should work (mostly)
@@ -262,7 +266,7 @@ namespace FloatySyncClient
 
 			var requestBodyObject = new
 			{
-				relativePath = relativePath,
+				relativePath = PathNorm.Normalize(relativePath),
 				groupKey = groupKey,
 				groupId = serverGroupId
 			};
@@ -283,7 +287,7 @@ namespace FloatySyncClient
 
 			try
 			{
-				await UploadFileToServer(path, DateTime.UtcNow, serverGroupId, groupKey, p.RelativePath, serverUrl);
+				await UploadFileToServer(PathNorm.Normalize(path), DateTime.UtcNow, serverGroupId, groupKey, p.RelativePath, serverUrl);
 				return true;
 			}
 			catch

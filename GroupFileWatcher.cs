@@ -66,7 +66,7 @@ namespace FloatySyncClient
 				FileMetadata fileMetadata = new FileMetadata();
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
 				fileMetadata.RelativePath = RelFromFull(e.FullPath);
-				fileMetadata.StoredPathOnClient = e.FullPath;
+				fileMetadata.StoredPathOnClient = PathNorm.Normalize(e.FullPath);
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.GroupId = _serverGroupId.ToString();
 
@@ -88,7 +88,7 @@ namespace FloatySyncClient
 				FileMetadata directoryMetadata = new FileMetadata();
 				directoryMetadata.LastModifiedUtc = DateTime.UtcNow;
 				directoryMetadata.RelativePath = RelFromFull(e.FullPath);
-				directoryMetadata.StoredPathOnClient = e.FullPath;
+				directoryMetadata.StoredPathOnClient = PathNorm.Normalize(e.FullPath);
 				directoryMetadata.Checksum = null;
 				directoryMetadata.GroupId = _serverGroupId.ToString();
 				directoryMetadata.IsDirectory = true;
@@ -129,7 +129,7 @@ namespace FloatySyncClient
 				_syncDbContext.SaveChanges();
 				try
 				{
-					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
+					await Helpers.UploadFileToServer(PathNorm.Normalize(e.FullPath), fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
 					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
@@ -152,7 +152,7 @@ namespace FloatySyncClient
 			if (File.Exists(e.FullPath))
 			{
 				var fileMetadata = _syncDbContext.Files!
-					.FirstOrDefault(f => f.RelativePath == PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath))
+					.FirstOrDefault(f => f.RelativePath == RelFromFull(e.OldFullPath)
 									  && f.GroupId == _serverGroupId.ToString());
 
 				if (fileMetadata == null)
@@ -160,8 +160,8 @@ namespace FloatySyncClient
 
 				fileMetadata.Checksum = Helpers.ComputeFileChecksum(e.FullPath);
 				fileMetadata.LastModifiedUtc = DateTime.UtcNow;
-				fileMetadata.StoredPathOnClient = e.FullPath;
-				fileMetadata.RelativePath = PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath));
+				fileMetadata.StoredPathOnClient = PathNorm.Normalize(e.FullPath);
+				fileMetadata.RelativePath = RelFromFull(e.FullPath);
 
 				var newDirRel = PathNorm.Normalize(
 					Path.GetDirectoryName(
@@ -178,7 +178,7 @@ namespace FloatySyncClient
 							RelativePath = newDirRel,
 							LastModifiedUtc = DateTime.UtcNow,
 							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(newDirRel)),
+							StoredPathOnClient = PathNorm.Normalize(Path.Combine(_localFolder, PathNorm.ToDisk(newDirRel))),
 							IsDirectory = true,
 							Checksum = null
 						});
@@ -198,12 +198,12 @@ namespace FloatySyncClient
 
 				try
 				{
-					await Helpers.MoveFileOnServer(PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)), _serverGroupId, _groupKey, _serverUrl);
+					await Helpers.MoveFileOnServer(RelFromFull(e.OldFullPath), RelFromFull(e.FullPath), _serverGroupId, _groupKey, _serverUrl);
 					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
-					QueueChange("Move", PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.OldFullPath)), fileMetadata.Checksum, PathNorm.Normalize(Path.GetRelativePath(_localFolder, e.FullPath)));
+					QueueChange("Move", RelFromFull(e.OldFullPath), fileMetadata.Checksum, RelFromFull(e.FullPath));
 				}
 			}
 			else if (Directory.Exists(e.FullPath))
@@ -270,8 +270,8 @@ namespace FloatySyncClient
 					? newRel
 					: newPrefix + m.RelativePath.Substring(oldPrefix.Length);
 
-				m.RelativePath = newPath;
-				m.StoredPathOnClient = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
+				m.RelativePath = PathNorm.Normalize(newPath);
+				m.StoredPathOnClient = PathNorm.Normalize(Path.Combine(_localFolder, PathNorm.ToDisk(newPath)));
 				m.LastModifiedUtc = DateTime.UtcNow;
 			}
 
@@ -290,8 +290,8 @@ namespace FloatySyncClient
 
 				db.Files!.Add(new FileMetadata
 				{
-					RelativePath = PathNorm.Normalize(dirRel),
-					StoredPathOnClient = Path.Combine(_localFolder, PathNorm.Normalize(dirRel)),
+					RelativePath = dirRel,
+					StoredPathOnClient = PathNorm.Normalize(Path.Combine(_localFolder, dirRel)),
 					LastModifiedUtc = DateTime.UtcNow,
 					GroupId = _serverGroupId.ToString(),
 					IsDirectory = true,
@@ -541,7 +541,7 @@ namespace FloatySyncClient
 					if (!serverFile.IsDirectory)
 					{
 						// Download
-						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, PathNorm.Normalize(serverFile.RelativePath), localPath, _serverUrl);
+						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, PathNorm.ToDisk(serverFile.RelativePath), localPath, _serverUrl);
 					}
 					var existing = _syncDbContext.Files!
 						.FirstOrDefault(f => f.RelativePath == PathNorm.Normalize(serverFile.RelativePath)
@@ -623,7 +623,7 @@ namespace FloatySyncClient
 							IsDeleted = false,
 							GroupId = _serverGroupId.ToString(),
 							LastModifiedUtc = DateTime.UtcNow,
-							StoredPathOnClient = path,
+							StoredPathOnClient = PathNorm.Normalize(path),
 							Checksum = checksum
 						});
 
@@ -696,6 +696,8 @@ namespace FloatySyncClient
 		private void QueueChange(string type, string rel, string? checksum, string? aux = null)
 		{
 			using var db = new SyncDbContext();
+
+			rel = PathNorm.Normalize(rel);
 
 			var existing = db.PendingChanges!
 							 .FirstOrDefault(p => p.GroupId == _serverGroupId &&

@@ -332,7 +332,7 @@ namespace FloatySyncClient
 						LastModifiedUtc = DateTime.UtcNow,
 						Checksum = Helpers.ComputeFileChecksum(filePath),
 						GroupId = serverGroupId.ToString(),
-						StoredPathOnClient = filePath,
+						StoredPathOnClient = PathNorm.Normalize(filePath),
 						IsDirectory = Helpers.WasDirectory(filePath, serverGroupId)
 					};
 					db.Files!.Add(newRecord);
@@ -341,7 +341,7 @@ namespace FloatySyncClient
 				{
 					existing.LastModifiedUtc = DateTime.UtcNow;
 					existing.Checksum = Helpers.ComputeFileChecksum(filePath);
-					existing.StoredPathOnClient = filePath;
+					existing.StoredPathOnClient = PathNorm.Normalize(filePath);
 					existing.IsDirectory = Helpers.WasDirectory(filePath, serverGroupId);
 				}
 			}
@@ -362,7 +362,7 @@ namespace FloatySyncClient
 						LastModifiedUtc = DateTime.UtcNow,
 						Checksum = null,
 						GroupId = serverGroupId.ToString(),
-						StoredPathOnClient = directory,
+						StoredPathOnClient = PathNorm.Normalize(directory),
 						IsDirectory = Helpers.WasDirectory(directory, serverGroupId)
 					};
 
@@ -371,7 +371,7 @@ namespace FloatySyncClient
 				else
 				{
 					existing.LastModifiedUtc = DateTime.UtcNow;
-					existing.StoredPathOnClient = directory;
+					existing.StoredPathOnClient = PathNorm.Normalize(directory);
 					existing.IsDirectory = true;
 				}
 			}
