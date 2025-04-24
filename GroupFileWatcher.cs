@@ -293,7 +293,7 @@ namespace FloatySyncClient
 				{
 					var newDiskPath = Path.Combine(_localFolder, PathNorm.ToDisk(newPath));
 
-					var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(oldRel)
+					var existingDirectory = db.Files!.FirstOrDefault(f => f.RelativePath == Path.GetDirectoryName(newRel)
 																	&& f.GroupId == _serverGroupId.ToString());
 
 					Directory.CreateDirectory(Path.GetDirectoryName(newDiskPath)!);
@@ -305,7 +305,7 @@ namespace FloatySyncClient
 							RelativePath = Path.GetDirectoryName(newRel)!,
 							LastModifiedUtc = DateTime.UtcNow,
 							GroupId = _serverGroupId.ToString(),
-							StoredPathOnClient = newPath,
+							StoredPathOnClient = newDiskPath,
 							Checksum = null,
 							IsDirectory = true
 						});
@@ -314,7 +314,7 @@ namespace FloatySyncClient
 					}
 					else
 					{
-						existingDirectory.StoredPathOnClient = newPath;
+						existingDirectory.StoredPathOnClient = newDiskPath;
 						existingDirectory.RelativePath = newRel;
 						existingDirectory.LastModifiedUtc = DateTime.UtcNow;
 					}
@@ -323,7 +323,7 @@ namespace FloatySyncClient
 					meta.StoredPathOnClient = newDiskPath;
 				}
 
-				meta.RelativePath = newPath;
+				meta.RelativePath = newRel;
 				meta.LastModifiedUtc = DateTime.UtcNow;
 			}
 
@@ -421,8 +421,10 @@ namespace FloatySyncClient
 		public async Task RunFullSync()
 		{
 			if (!await ServerReachable())
+			{
+				Console.WriteLine("[Sync] Server not reachable");
 				return;
-
+			}
 			var _syncDbContext = new SyncDbContext();
 			Console.WriteLine($"[Sync Group {_serverGroupId} Start]");
 			DateTime lastSyncCopy = LastSyncUtc;
@@ -530,14 +532,6 @@ namespace FloatySyncClient
 					}
 					_suppressEvents = false;
 					// Remove from local DB
-					var existing = _syncDbContext.Files!
-						.FirstOrDefault(f => f.RelativePath == serverFile.RelativePath
-										  && f.GroupId == _serverGroupId.ToString());
-					if (existing != null)
-					{
-						_syncDbContext.Files!.Remove(existing);
-					}
-
 					string prefix = serverFile.RelativePath! + "/";
 					var rowsToDelete = _syncDbContext.Files!
 						   .Where(f => (f.RelativePath == serverFile.RelativePath! ||
@@ -556,7 +550,7 @@ namespace FloatySyncClient
 
 					Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
 
-					if (Directory.Exists(Path.GetDirectoryName(localPath)) && Path.GetDirectoryName(localPath) != _localFolder && Path.GetDirectoryName(localPath) != _localFolder && existingDirectory == null)
+					if (Directory.Exists(Path.GetDirectoryName(localPath)) && Path.GetDirectoryName(localPath) != _localFolder && existingDirectory == null)
 					{
 						_syncDbContext.Files!.Add(new FileMetadata
 						{
@@ -631,8 +625,7 @@ namespace FloatySyncClient
 
 			var fileSystemEntries = Directory.EnumerateFileSystemEntries(
 						   _localFolder, "*", SearchOption.AllDirectories);
-
-			if (fileSystemEntries.Any())
+			if (fileSystemEntries.Count() != 0)
 			{
 				foreach (var path in fileSystemEntries)
 				{
@@ -687,7 +680,6 @@ namespace FloatySyncClient
 					dbRows.Remove(rel);
 				}
 			}
-
 			// Rest is missing on disk
 			foreach (var kvp in dbRows.Values)
 			{
