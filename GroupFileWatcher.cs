@@ -83,7 +83,6 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.UploadFileToServer(e.FullPath, fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
-					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -137,7 +136,6 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.UploadFileToServer(PathNorm.Normalize(e.FullPath), fileMetadata.LastModifiedUtc, _serverGroupId, _groupKey, RelFromFull(e.FullPath), _serverUrl);
-					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -206,7 +204,6 @@ namespace FloatySyncClient
 				try
 				{
 					await Helpers.MoveFileOnServer(RelFromFull(e.OldFullPath), RelFromFull(e.FullPath), _serverGroupId, _groupKey, _serverUrl);
-					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -218,7 +215,6 @@ namespace FloatySyncClient
 				try
 				{
 					await HandleDirectoryRename(e.OldFullPath, e.FullPath);
-					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -235,7 +231,6 @@ namespace FloatySyncClient
 			try
 			{
 				await HandleDirectoryRename(Path.Combine(_localFolder, p.RelativePath), Path.Combine(_localFolder, p.AuxPath!));
-				LastSyncUtc = DateTime.UtcNow;
 				return true;
 			}
 			catch
@@ -342,7 +337,6 @@ namespace FloatySyncClient
 				{
 					_syncDbContext.Remove(fileMetadata);
 					await HandleDirectoryDelete(e.FullPath);
-					LastSyncUtc = DateTime.UtcNow;
 				}
 				catch (HttpRequestException)
 				{
@@ -368,7 +362,6 @@ namespace FloatySyncClient
 			try
 			{
 				await HandleDirectoryDelete(path);
-				LastSyncUtc = DateTime.UtcNow;
 				return true;
 			}
 			catch
@@ -553,7 +546,7 @@ namespace FloatySyncClient
 						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, PathNorm.Normalize(Path.GetDirectoryName(serverFile.RelativePath) ?? ""), url);
 					}
 
-					if (!serverFile.IsDirectory)
+					if (!serverFile.IsDirectory && File.GetLastWriteTimeUtc(localPath) < serverFile.LastModifiedUtc)
 					{
 						// Download
 						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, PathNorm.ToDisk(serverFile.RelativePath), localPath, _serverUrl);
