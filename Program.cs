@@ -464,9 +464,7 @@ namespace FloatySyncClient
 				db.SaveChanges();
 			}
 
-			Console.WriteLine($"[Cleanup] done: {dupGroups.Count()} dup sets fixed, " +
-							  $"{toRemove.Count} tombstones removed, " +
-							  $"{missing.Count} stale changes dropped.");
+			Console.WriteLine($"[Cleanup] Done");
 		}
 
 	}
