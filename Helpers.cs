@@ -55,6 +55,7 @@ namespace FloatySyncClient
 
 		internal static async Task DeleteOnServer(string relativePath, string? checksum, int serverGroupId, string groupKey, string serverUrl, string localRoot)
 		{
+			Console.WriteLine("Delete");
 			HttpClient httpClient = new HttpClient();
 
 			relativePath = PathNorm.Normalize(relativePath);
@@ -117,6 +118,7 @@ namespace FloatySyncClient
 
 		internal static async Task DownloadFileServer(int groupId, string? groupKey, string relativePath, string localPath, string serverUrl)
 		{
+			Console.WriteLine($"Download: {relativePath}");
 			HttpClient httpClient = new HttpClient();
 
 			var queryString = $"?relativePath={Uri.EscapeDataString(relativePath)}" +
@@ -159,6 +161,7 @@ namespace FloatySyncClient
 
 		internal static async Task MoveFileOnServer(string oldRelativePath, string newRelativePath, int serverGroupId, string groupKey, string serverUrl)
 		{
+			Console.WriteLine($"Move: {oldRelativePath} - {newRelativePath}");
 			HttpClient httpClient = new HttpClient();
 
 			string requestUrl = $"{serverUrl}/api/files/move";
@@ -181,6 +184,7 @@ namespace FloatySyncClient
 
 		internal static async Task UploadFileToServer(string filePath, DateTime lastModifiedUtc, int serverGroupId, string? groupKey, string relativePath, string serverUrl)
 		{
+			Console.WriteLine($"Upload: {relativePath} - {lastModifiedUtc}");
 			HttpClient httpClient = new HttpClient();
 
 			using var formData = new MultipartFormDataContent();

@@ -546,7 +546,7 @@ namespace FloatySyncClient
 						await Helpers.CreateDirectoryOnServer(_serverGroupId, _groupKey, PathNorm.Normalize(Path.GetDirectoryName(serverFile.RelativePath) ?? ""), url);
 					}
 
-					if (!serverFile.IsDirectory && File.GetLastWriteTimeUtc(localPath) < serverFile.LastModifiedUtc)
+					if (!serverFile.IsDirectory && File.GetLastWriteTimeUtc(localPath) > serverFile.LastModifiedUtc)
 					{
 						// Download
 						await Helpers.DownloadFileServer(_serverGroupId, _groupKey, PathNorm.ToDisk(serverFile.RelativePath), localPath, _serverUrl);
@@ -559,7 +559,7 @@ namespace FloatySyncClient
 						_syncDbContext.Files!.Add(new FileMetadata
 						{
 							RelativePath = PathNorm.Normalize(serverFile.RelativePath!),
-							LastModifiedUtc = serverFile.LastModifiedUtc,
+							LastModifiedUtc = DateTime.UtcNow,
 							GroupId = _serverGroupId.ToString(),
 							StoredPathOnClient = PathNorm.Normalize(localPath),
 							IsDirectory = serverFile.IsDirectory,
@@ -568,7 +568,7 @@ namespace FloatySyncClient
 					}
 					else
 					{
-						existing.LastModifiedUtc = serverFile.LastModifiedUtc;
+						existing.LastModifiedUtc = DateTime.UtcNow;
 						existing.StoredPathOnClient = PathNorm.Normalize(localPath);
 						existing.IsDirectory = serverFile.IsDirectory;
 
@@ -576,12 +576,12 @@ namespace FloatySyncClient
 							existing.Checksum = Helpers.ComputeFileChecksum(localPath);
 					}
 					_suppressEvents = false;
-					if (serverFile.IsDirectory)
+					if (serverFile.IsDirectory && Directory.GetLastWriteTimeUtc(localPath) > serverFile.LastModifiedUtc)
 					{
 						Directory.CreateDirectory(localPath);
 						Console.WriteLine($"[Sync] Pulled directory from server: {serverFile.RelativePath}");
 					}
-					else
+					else if (File.GetLastWriteTimeUtc(localPath) > serverFile.LastModifiedUtc)
 						Console.WriteLine($"[Sync] Pulled file from server: {serverFile.RelativePath}");
 				}
 			}
@@ -658,6 +658,7 @@ namespace FloatySyncClient
 						var lastWrite = File.GetLastWriteTimeUtc(path);
 						if (lastWrite > row.LastModifiedUtc)
 						{
+							Console.WriteLine($"Queue upload: {lastWrite:0} - {row.LastModifiedUtc:0}");
 							row.LastModifiedUtc = lastWrite;
 							row.Checksum = Helpers.ComputeFileChecksum(path);
 							QueueChange("Upload", rel, row.Checksum);
