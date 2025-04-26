@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -49,6 +50,23 @@ namespace FloatySyncClient
 			_watcher.Changed += OnChanged;
 			_watcher.Renamed += OnRenamed;
 			_watcher.Deleted += OnDeleted;
+			_watcher.Error += OnErrored;
+		}
+
+		private async void OnErrored(object sender, ErrorEventArgs e)
+		{
+			Console.WriteLine(e.ToString());
+			Log.Error("FileSystemWatcher errored: ", e.GetException());
+
+			_watcher = new FileSystemWatcher(_localFolder);
+			_watcher.IncludeSubdirectories = true;
+			_watcher.EnableRaisingEvents = true;
+
+			_watcher.Created += OnCreated;
+			_watcher.Changed += OnChanged;
+			_watcher.Renamed += OnRenamed;
+			_watcher.Deleted += OnDeleted;
+			_watcher.Error += OnErrored;
 		}
 
 		// FileSystemWatcher handlers
