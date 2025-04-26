@@ -98,10 +98,10 @@ namespace FloatySyncClient
 					{
 						foreach (var wg in watchers)
 						{
-							wg.ScanLocalFolder();
 							isSynching = true;
-							await wg.FlushQueue();
 							await wg.RunFullSync();
+							wg.ScanLocalFolder();
+							await wg.FlushQueue();
 							isSynching = false;
 						}
 						await Task.Delay(TimeSpan.FromMinutes(1));
